@@ -2,23 +2,25 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Mon Super ENT+</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <h1>Bienvenue sur Mon Super ENT+</h1>
-    <p id="status">Vérification du serveur...</p>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENT+</title>
+    
     <script>
-        // On teste si notre proxy répond bien
-        fetch('/api/hello')
-            .then(res => res.json())
-            .then(data => {
-                document.getElementById('status').innerText = data.status;
-            })
-            .catch(err => {
-                document.getElementById('status').innerText = "Erreur de connexion au proxy";
-            });
+        // --- SCRIPT D'AIGUILLAGE ÉCLAIR ---
+        
+        // On vérifie instantanément si la clé de session est présente
+        const isLogged = localStorage.getItem('ent_plus_logged') === 'true';
+
+        if (isLogged) {
+            // Utilisateur connecté -> On propulse vers l'accueil
+            // .replace() est crucial pour qu'on ne puisse pas faire "Retour"
+            window.location.replace("accueil.html");
+        } else {
+            // Pas de session -> Hop, à la page de connexion
+            window.location.replace("login.html");
+        }
     </script>
-</body>
+</head>
+<body style="background: white;">
+    </body>
 </html>

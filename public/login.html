@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Connexion — ENT+</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-wrapper">
+
+    <div class="login-card">
+        <h1>ENT+</h1>
+        <p>Collez votre jeton Scolengo pour commencer</p>
+
+        <textarea id="tokenInput" class="input-area" placeholder='{"tokenSet": ...}'></textarea>
+        
+        <button id="connectBtn" class="btn-login">Se connecter</button>
+        
+        <div id="loginMsg"></div>
+    </div>
+
+    <script>
+        // Si déjà connecté, on redirige vers l'accueil directement
+        if (localStorage.getItem('ent_plus_logged') === 'true') {
+            window.location.replace("accueil.html");
+        }
+
+        const btn = document.getElementById('connectBtn');
+        const msg = document.getElementById('loginMsg');
+
+        btn.onclick = async () => {
+            const tokenValue = document.getElementById('tokenInput').value.trim();
+            
+            if(!tokenValue) return;
+
+            btn.disabled = true;
+            btn.innerText = "Connexion...";
+
+            try {
+                const res = await fetch('/save-manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: tokenValue })
+                });
+
+                if(res.ok) {
+                    localStorage.setItem('ent_plus_logged', 'true');
+                    msg.style.color = "#10b981";
+                    msg.innerText = "Synchronisation réussie !";
+                    
+                    setTimeout(() => {
+                        window.location.replace("accueil.html");
+                    }, 800);
+                } else {
+                    msg.style.color = "var(--danger)";
+                    msg.innerText = "Erreur : Jeton invalide";
+                    btn.disabled = false;
+                    btn.innerText = "Se connecter";
+                }
+            } catch(e) {
+                msg.style.color = "var(--danger)";
+                msg.innerText = "Erreur de liaison serveur";
+                btn.disabled = false;
+                btn.innerText = "Se connecter";
+            }
+        };
+    </script>
+</body>
+</html>

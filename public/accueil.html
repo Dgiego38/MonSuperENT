@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Tableau de Bord — ENT+</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <nav class="sidebar">
+        <div class="logo-container">ENT+</div>
+        
+        <ul class="nav-links">
+            <li class="active"><a href="accueil.html">🏠 Tableau de Bord</a></li>
+            <li><a href="messagerie.html">✉️ Messagerie</a></li>
+            <li><a href="cahier-de-texte.html">📒 Cahier de Texte</a></li>
+            <li><a href="fiche-eleve.html">👥 Fiches Élèves</a></li>
+            <li><a href="absences.html">🚫 Absences</a></li>
+            <li><a href="evaluations.html">📊 Évaluations</a></li>
+            <li><a href="moodle.html">🎓 Moodle</a></li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <div style="font-size: 12px; color: var(--apple-gray);">Établissement +</div>
+            <button class="btn-power" onclick="logout()" title="Déconnexion">⏻</button>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <header class="header-top">
+            <div class="user-info">
+                <span id="userName">Chargement...</span>
+                <span id="status" class="status-indicator">● À JOUR</span>
+            </div>
+        </header>
+
+        <h1 class="section-title">Vos Devoirs</h1>
+        <div class="hw-grid" id="hwList"></div>
+    </main>
+
+    <script>
+        if (localStorage.getItem('ent_plus_logged') !== 'true') {
+            window.location.replace("login.html");
+        }
+
+        async function init() {
+            try {
+                // 1. Profil
+                const pRes = await fetch('/get-profile');
+                const user = await pRes.json();
+                document.getElementById('userName').innerText = user.firstName + " " + user.lastName;
+
+                // 2. Devoirs
+                const hRes = await fetch('/get-homework');
+                const data = await hRes.json();
+                const list = document.getElementById('hwList');
+                list.innerHTML = "";
+
+                // Ton code source montre que les données sont dans data.items
+                const items = data.items || [];
+
+                if (items.length > 0) {
+                    items.forEach(d => {
+                        // Utilisation de dueDateTime (comme dans ton export TS)
+                        const rawDate = d.dueDateTime || d.dueDate;
+                        let dateDisplay = "À venir";
+
+                        if (rawDate) {
+                            // On nettoie pour éviter le bug Invalid Date
+                            const dateObj = new Date(rawDate.toString().split('T')[0]);
+                            if (!isNaN(dateObj.getTime())) {
+                                dateDisplay = dateObj.toLocaleDateString('fr-FR', {
+                                    day: 'numeric', 
+                                    month: 'short'
+                                });
+                            }
+                        }
+
+                        // Dans ton code TS : subject est une string ou d.subject.label
+                        const subjectName = (typeof d.subject === 'object') ? d.subject.label : d.subject;
+
+                        list.innerHTML += `
+                            <div class="hw-card">
+                                <div class="subject-tag">${subjectName || "Matière"}</div>
+                                <div style="font-weight: 700; font-size: 17px; margin-bottom: 5px;">${d.title || "Exercices"}</div>
+                                <div style="color: var(--apple-gray); font-size: 13px;">Pour le ${dateDisplay}</div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    list.innerHTML = "<p style='color: gray; padding: 20px;'>Aucun devoir trouvé.</p>";
+                }
+            } catch (e) {
+                console.error(e);
+                document.getElementById('status').innerText = "❌ ERREUR";
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('ent_plus_logged');
+            window.location.replace("login.html");
+        }
+
+        init();
+    </script>
+</body>
+</html>
