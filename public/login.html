@@ -60,11 +60,11 @@
         <h1>🏫 ENT+</h1>
         
         <div id="step1" class="step active">
-            <p style="margin-bottom: 20px; color: #86868b;">Recherchez votre établissement</p>
+            <p style="margin-bottom: 20px; color: #86868b;">Trouvez votre établissement</p>
             <div class="input-container">
                 <input type="text" id="schoolInput" class="btn-login" 
                        style="background:white; color:black; border:1px solid #ddd; text-align:left;" 
-                       placeholder="Nom (ex: Pierre), Ville...">
+                       placeholder="Nom (ex: Pierre Polie), Ville...">
                 <div id="results" class="search-results"></div>
             </div>
         </div>
@@ -86,7 +86,7 @@
     const statusText = document.getElementById('statusText');
     let searchTimeout;
 
-    // 1. CALLBACK (Retour de l'ENT)
+    // 1. CALLBACK (Retour après connexion EduConnect/Skolengo)
     async function checkCallback() {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
@@ -107,16 +107,16 @@
                     localStorage.removeItem('temp_school_url');
                     window.location.href = "accueil.html";
                 } else {
-                    throw new Error(data.error || "Erreur inconnue");
+                    throw new Error(data.error || "Erreur lors du callback");
                 }
             } catch (e) {
-                alert("Session échouée : " + e.message);
+                alert("La connexion a échoué : " + e.message);
                 window.location.href = "login.html";
             }
         }
     }
 
-    // 2. RECHERCHE (Logique Mael adaptée au Web)
+    // 2. RECHERCHE (Identique au moteur de Mael)
     schoolInput.addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
         const val = e.target.value;
@@ -138,7 +138,6 @@
                         const div = document.createElement('div');
                         div.className = 'result-item';
                         
-                        // Nettoyage des données comme chez Mael
                         const city = (school.address?.city || school.city || "").replace('CEDEX', '').trim();
                         const zip = school.address?.zipCode || school.zipCode || "";
                         const ems = school.emsCode ? `(${school.emsCode})` : "";
@@ -151,6 +150,7 @@
                             <button class="btn-select-small">Choisir</button>
                         `;
                         
+                        // On passe l'objet school entier
                         div.onclick = () => startAuth(school);
                         resultsDiv.appendChild(div);
                     });
@@ -160,7 +160,10 @@
     });
 
     async function startAuth(school) {
+        // Crucial : On prend baseUrl, mais on s'assure qu'elle n'est pas undefined
         const baseUrl = school.baseUrl || school.url;
+        if (!baseUrl) return alert("URL de l'établissement introuvable.");
+
         localStorage.setItem('temp_school_url', baseUrl);
         
         document.getElementById('step1').classList.remove('active');
@@ -168,13 +171,14 @@
         statusText.innerText = "Liaison avec l'ENT...";
 
         try {
-            const authRes = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
-            const authData = await authRes.json();
+            // On envoie l'URL à l'API qui va gérer le Discovery OIDC
+            const res = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
+            const data = await res.json();
             
-            if(authData.authURL) {
-                window.location.href = authData.authURL;
+            if(data.authURL) {
+                window.location.href = data.authURL;
             } else {
-                throw new Error(authData.error || "Lien impossible à générer");
+                throw new Error(data.error || "L'établissement ne répond pas (OIDC Invalid)");
             }
         } catch (e) {
             alert("Erreur de liaison : " + e.message);
@@ -182,6 +186,7 @@
         }
     }
 
+    // Fermer les résultats si on clique ailleurs
     document.addEventListener('click', (e) => {
         if (!schoolInput.contains(e.target)) resultsDiv.style.display = 'none';
     });

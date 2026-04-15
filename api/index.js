@@ -1,47 +1,61 @@
 const { Skolengo } = require('scolengo-api');
 
 module.exports = async (req, res) => {
+    // Headers CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const action = req.query.action || (req.body && req.body.action);
-    
+
     try {
         switch (action) {
             case 'search-school':
                 const q = req.query.q || req.query.text;
                 if (!q || q.length < 3) return res.json([]);
-                
-                // On limite à 8 résultats pour une réponse instantanée
-                const schools = await Skolengo.searchSchool({ text: q }, 8);
+                const schools = await Skolengo.searchSchool({ text: q }, 10);
                 return res.json(schools);
 
             case 'get-auth-url':
-                const schoolUrl = req.query.url;
+                let schoolUrl = req.query.url;
                 if (!schoolUrl) throw new Error("URL manquante");
 
-                // Configuration du client OIDC comme dans le projet original
-                const school = { baseUrl: schoolUrl };
-                const oidClient = await Skolengo.getOIDClient(school);
-                
-                // L'URL de redirection doit être STRICTEMENT en HTTPS sur Vercel
-                const redirectUri = `https://${req.headers.host}/login.html`;
-                
-                const authURL = oidClient.authorizationUrl({
-                    redirect_uri: redirectUri,
-                    scope: 'openid profile email education',
-                    response_type: 'code', // Obligatoire pour capturer le jeton
-                });
-                
-                return res.json({ authURL });
+                // NETTOYAGE DYNAMIQUE (Pour éviter emsOIDCWellKnownUrl invalid)
+                // On retire les slashs de fin et les espaces
+                schoolUrl = schoolUrl.trim().replace(/\/$/, "");
+
+                try {
+                    const school = { baseUrl: schoolUrl };
+                    const oidClient = await Skolengo.getOIDClient(school);
+
+                    // Redirection HTTPS forcée pour Vercel
+                    const protocol = req.headers['x-forwarded-proto'] || 'https';
+                    const redirectUri = `${protocol}://${req.headers.host}/login.html`;
+
+                    const authURL = oidClient.authorizationUrl({
+                        redirect_uri: redirectUri,
+                        scope: 'openid profile email education',
+                        response_type: 'code',
+                        state: Math.random().toString(36).substring(7),
+                    });
+
+                    return res.json({ authURL });
+                } catch (oidErr) {
+                    // Si ça échoue, c'est souvent que l'URL du portail 
+                    // n'est pas celle de l'IDP (Identité).
+                    throw new Error(`L'établissement ${schoolUrl} ne semble pas supporter la connexion OIDC directe.`);
+                }
 
             case 'callback':
                 const { code, url } = req.query;
-                const callbackSchool = { baseUrl: url };
+                if (!code || !url) throw new Error("Paramètres callback manquants");
+
+                const callbackSchool = { baseUrl: url.trim().replace(/\/$/, "") };
                 const oid = await Skolengo.getOIDClient(callbackSchool);
-                const cbUri = `https://${req.headers.host}/login.html`;
+                
+                const cbProtocol = req.headers['x-forwarded-proto'] || 'https';
+                const cbUri = `${cbProtocol}://${req.headers.host}/login.html`;
 
                 const tokenSet = await oid.callback(cbUri, { code });
                 const client = await Skolengo.fromConfigObject({ tokenSet, school: callbackSchool });
@@ -56,7 +70,8 @@ module.exports = async (req, res) => {
                 return res.json({ status: "ready" });
         }
     } catch (error) {
-        console.error("Erreur détaillée:", error.message);
+        console.error("ERREUR API:", error.message);
+        // On renvoie un message propre au front-end
         return res.status(500).json({ error: error.message });
     }
 };
