@@ -36,31 +36,29 @@
             btn.innerText = "Connexion...";
 
             try {
-                const res = await fetch('/save-manual', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: tokenValue })
-                });
+                // ANALYSE DU JETON
+                // On vérifie que c'est bien du JSON valide avant de sauvegarder
+                const parsedToken = JSON.parse(tokenValue);
 
-                if(res.ok) {
-                    localStorage.setItem('ent_plus_logged', 'true');
-                    msg.style.color = "#10b981";
-                    msg.innerText = "Synchronisation réussie !";
-                    
-                    setTimeout(() => {
-                        window.location.replace("accueil.html");
-                    }, 800);
-                } else {
-                    msg.style.color = "var(--danger)";
-                    msg.innerText = "Erreur : Jeton invalide";
-                    btn.disabled = false;
-                    btn.innerText = "Se connecter";
-                }
+                // SAUVEGARDE LOCALE (Adieu le serveur pour cette étape !)
+                localStorage.setItem('scolengo_session', JSON.stringify(parsedToken));
+                localStorage.setItem('ent_plus_logged', 'true');
+
+                // Succès visuel
+                msg.style.color = "#10b981";
+                msg.innerText = "Synchronisation réussie !";
+                
+                setTimeout(() => {
+                    window.location.replace("accueil.html");
+                }, 800);
+
             } catch(e) {
-                msg.style.color = "var(--danger)";
-                msg.innerText = "Erreur de liaison serveur";
+                // Si le JSON est mal collé ou invalide
+                msg.style.color = "#ff4b4b"; 
+                msg.innerText = "Erreur : Format du jeton invalide";
                 btn.disabled = false;
                 btn.innerText = "Se connecter";
+                console.error("Erreur de parsing JSON:", e);
             }
         };
     </script>
