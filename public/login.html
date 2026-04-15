@@ -7,237 +7,205 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
 <div class="login-bg"></div>
 
 <div class="login-wrapper">
     <div class="login-card">
 
+        <!-- STEP 1 -->
         <div id="step1">
             <div class="login-logo">
                 <div class="login-logo-icon">🏫</div>
                 <div class="login-title">ENT+</div>
-                <div class="login-subtitle">Connectez-vous à votre établissement Skolengo</div>
+                <div class="login-subtitle">Connexion à ton établissement</div>
             </div>
 
             <div class="search-input-wrap" style="position:relative">
-                <span class="search-icon">🔍</span>
                 <input
                     type="text"
                     id="schoolInput"
                     class="search-field"
-                    placeholder="Nom, ville ou code postal..."
+                    placeholder="Nom de ton collège ou ville..."
                     autocomplete="off"
                     autofocus
                 >
                 <div id="searchResults" class="search-results"></div>
             </div>
-
-            <p style="color:var(--text-3); font-size:12px; text-align:center; margin-top:20px;">
-                Connexion sécurisée via EduConnect / Skolengo
-            </p>
         </div>
 
+        <!-- STEP 2 -->
         <div id="step2" style="display:none">
             <div class="login-status">
                 <div class="spinner"></div>
-                <div class="login-status-title" id="statusTitle">Connexion en cours...</div>
-                <div class="login-status-sub" id="statusSub">Liaison avec votre ENT</div>
+                <div class="login-status-title" id="statusTitle">Connexion...</div>
+                <div class="login-status-sub" id="statusSub">Préparation</div>
             </div>
         </div>
 
+        <!-- STEP 3 -->
         <div id="step3" style="display:none">
             <div class="login-status">
-                <span style="font-size:48px">⚠️</span>
-                <div class="login-status-title">Échec de connexion</div>
-                <div class="login-status-sub" id="errorMsg">Une erreur est survenue.</div>
-                <button class="btn btn-primary" style="margin-top:24px" onclick="resetLogin()">Réessayer</button>
+                <span style="font-size:48px">❌</span>
+                <div class="login-status-title">Erreur</div>
+                <div class="login-status-sub" id="errorMsg"></div>
+                <button onclick="resetLogin()">Réessayer</button>
             </div>
         </div>
+
     </div>
 </div>
 
 <script>
-    // Sécurité : redirection immédiate si la session est déjà active
-    if (localStorage.getItem('ent_logged') === 'true') {
-        window.location.replace('accueil.html');
-    }
+/* ─────────────────────────────
+   AUTO LOGIN
+───────────────────────────── */
+if (localStorage.getItem('ent_logged') === 'true') {
+    window.location.replace('accueil.html');
+}
 
-    const schoolInput = document.getElementById('schoolInput');
-    const resultsDiv  = document.getElementById('searchResults');
-    let searchTimer;
+/* ─────────────────────────────
+   VARIABLES
+───────────────────────────── */
+const schoolInput = document.getElementById('schoolInput');
+const resultsDiv  = document.getElementById('searchResults');
+let timer;
 
-    function showStep(n) {
-        ['step1','step2','step3'].forEach((id, i) => {
-            document.getElementById(id).style.display = (i === n-1) ? 'block' : 'none';
-        });
-    }
-
-    function resetLogin() {
-        showStep(1);
-        schoolInput.value = '';
-        schoolInput.focus();
-    }
-
-    // ── Recherche d'établissement ──────────────────────────────
-    schoolInput.addEventListener('input', e => {
-        clearTimeout(searchTimer);
-        const val = e.target.value.trim();
-        if (val.length < 3) { 
-            resultsDiv.style.display = 'none'; 
-            return; 
-        }
-
-        searchTimer = setTimeout(async () => {
-            try {
-                const r = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
-                const schools = await r.json();
-
-                resultsDiv.innerHTML = '';
-                if (!Array.isArray(schools) || schools.length === 0) {
-                    resultsDiv.style.display = 'none'; 
-                    return;
-                }
-
-                resultsDiv.style.display = 'block';
-                schools.slice(0, 10).forEach(school => {
-                    const city = (school.location?.city || school.city || '').replace('CEDEX','').trim();
-                    const zip  = school.location?.zipCode || '';
-                    const div  = document.createElement('div');
-                    div.className = 'result-item';
-                    div.innerHTML = `
-                        <div class="result-icon">🏫</div>
-                        <div style="flex:1">
-                            <div class="result-name">${school.name}</div>
-                            <div class="result-detail">${city}${zip ? ' ('+zip+')' : ''}</div>
-                        </div>
-                        <span class="result-arrow">→</span>
-                    `;
-                    div.addEventListener('click', () => startAuth(school));
-                    resultsDiv.appendChild(div);
-                });
-            } catch(err) {
-                console.error('Search error:', err);
-            }
-        }, 350);
+/* ─────────────────────────────
+   UI
+───────────────────────────── */
+function showStep(n) {
+    ['step1','step2','step3'].forEach((id, i) => {
+        document.getElementById(id).style.display = (i === n-1) ? 'block' : 'none';
     });
+}
 
-    // Fermer la liste si clic à l'extérieur
-    document.addEventListener('click', e => {
-        if (!schoolInput.contains(e.target) && !resultsDiv.contains(e.target)) {
-            resultsDiv.style.display = 'none';
-        }
-    });
+function resetLogin() {
+    localStorage.clear();
+    showStep(1);
+    schoolInput.value = '';
+}
 
-    // ── Lancement de l'authentification ───────────────────────
-    async function startAuth(school) {
+/* ─────────────────────────────
+   SEARCH
+───────────────────────────── */
+schoolInput.addEventListener('input', e => {
+    clearTimeout(timer);
+    const val = e.target.value.trim();
+
+    if (val.length < 3) {
         resultsDiv.style.display = 'none';
-        showStep(2);
-        document.getElementById('statusTitle').textContent = `Liaison avec ${school.name}`;
-        
-        // Extraction récursive de l'URL technique (Skolengo v3)
-        function findUrl(obj) {
-            if (!obj || typeof obj !== 'object') return null;
-            if (typeof obj.url === 'string' && obj.url.startsWith('http')) return obj.url;
-            if (typeof obj.baseUrl === 'string' && obj.baseUrl.startsWith('http')) return obj.baseUrl;
-            if (obj.location?.homepage) return obj.location.homepage;
-            if (obj.links && Array.isArray(obj.links)) {
-                const link = obj.links.find(l => l.rel === 'self' || l.href?.startsWith('http'));
-                if (link) return link.href;
-            }
-            for (let k in obj) { let r = findUrl(obj[k]); if (r) return r; }
-            return null;
-        }
-
-        let baseUrl = findUrl(school);
-
-        // Fallback spécifique pour certains ENT régionaux si l'URL est manquante
-        if (!baseUrl && school.name) {
-            const name = school.name.toLowerCase();
-            if (name.includes('occitanie') || name.includes('mende')) baseUrl = "https://www.ent-occitanie.fr";
-            if (name.includes('monbureaunumerique')) baseUrl = "https://www.monbureaunumerique.fr";
-        }
-
-        if (!baseUrl) {
-            showStep(3);
-            document.getElementById('errorMsg').textContent = "L'adresse de cet établissement est introuvable. Essayez de chercher le nom de votre ville.";
-            return;
-        }
-
-        baseUrl = baseUrl.trim().replace(/\/$/, '');
-        localStorage.setItem('ent_school_url', baseUrl);
-
-        try {
-            // Demande l'URL d'auth et génère le challenge PKCE côté serveur
-            const r = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
-            const data = await r.json();
-
-            if (!data.authURL || !data.codeVerifier) {
-                throw new Error(data.error || "Impossible de générer le lien de connexion.");
-            }
-
-            // Stockage du verifier indispensable pour l'étape Callback
-            localStorage.setItem('ent_pkce_verifier', data.codeVerifier);
-
-            document.getElementById('statusSub').textContent = 'Redirection vers EduConnect...';
-            
-            setTimeout(() => { window.location.href = data.authURL; }, 300);
-
-        } catch(err) {
-            showStep(3);
-            document.getElementById('errorMsg').textContent = err.message;
-        }
+        return;
     }
 
-    // ── Traitement du retour (OAuth Callback) ─────────────────
-    async function handleCallback() {
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get('code');
-        const schoolUrl = localStorage.getItem('ent_school_url');
-        const verifier = localStorage.getItem('ent_pkce_verifier');
-
-        if (!code) return; // Mode normal (pas un retour d'auth)
-
-        showStep(2);
-        document.getElementById('statusTitle').textContent = 'Vérification...';
-        document.getElementById('statusSub').textContent = 'Création de votre session sécurisée';
-
-        // Nettoyage visuel de l'URL pour éviter les doubles soumissions
-        window.history.replaceState({}, '', '/login.html');
-
+    timer = setTimeout(async () => {
         try {
-            if (!schoolUrl || !verifier) {
-                throw new Error("Données de session perdues. Veuillez recommencer la recherche.");
-            }
+            const res = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
+            const schools = await res.json();
 
-            const r = await fetch(
-                `/api/index?action=callback&code=${encodeURIComponent(code)}&url=${encodeURIComponent(schoolUrl)}&verifier=${encodeURIComponent(verifier)}`
-            );
-            const data = await r.json();
+            console.log("SCHOOLS:", schools);
 
-            if (!data.success) throw new Error(data.error || "L'authentification a échoué.");
+            resultsDiv.innerHTML = '';
 
-            // Stockage des informations utilisateur et session
-            localStorage.setItem('ent_logged', 'true');
-            localStorage.setItem('ent_session', JSON.stringify(data.session));
-            localStorage.setItem('ent_user', JSON.stringify(data.user));
-            
-            // Nettoyage des clés temporaires
-            localStorage.removeItem('ent_pkce_verifier');
-            localStorage.removeItem('ent_school_url');
+            if (!schools.length) return;
 
-            document.getElementById('statusTitle').textContent = `Bienvenue, ${data.user?.firstName || 'élève'} !`;
-            document.getElementById('statusSub').textContent = 'Chargement de votre espace personnel...';
+            resultsDiv.style.display = 'block';
 
-            setTimeout(() => { window.location.replace('accueil.html'); }, 800);
+            schools.forEach(school => {
+                const div = document.createElement('div');
+                div.className = 'result-item';
 
-        } catch(err) {
-            showStep(3);
-            document.getElementById('errorMsg').textContent = err.message;
+                div.textContent = school.name;
+
+                div.onclick = () => startAuth(school);
+
+                resultsDiv.appendChild(div);
+            });
+
+        } catch (e) {
+            console.error(e);
         }
-    }
+    }, 300);
+});
 
-    // Lancement auto au chargement
-    handleCallback();
+/* ─────────────────────────────
+   AUTH
+───────────────────────────── */
+async function startAuth(school) {
+    showStep(2);
+
+    document.getElementById('statusTitle').textContent =
+        "Connexion à " + school.name;
+
+    // 🔥 IMPORTANT : URL toujours définie
+    let baseUrl = school.baseUrl || "https://www.monbureaunumerique.fr";
+
+    console.log("BASE URL:", baseUrl);
+
+    localStorage.setItem('ent_school_url', baseUrl);
+
+    try {
+        const res = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
+        const data = await res.json();
+
+        console.log("AUTH:", data);
+
+        if (!data.authURL) throw new Error("Erreur connexion ENT");
+
+        localStorage.setItem('ent_pkce_verifier', data.codeVerifier);
+
+        document.getElementById('statusSub').textContent =
+            "Redirection...";
+
+        setTimeout(() => {
+            window.location.href = data.authURL;
+        }, 500);
+
+    } catch (err) {
+        showStep(3);
+        document.getElementById('errorMsg').textContent = err.message;
+    }
+}
+
+/* ─────────────────────────────
+   CALLBACK
+───────────────────────────── */
+async function handleCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+
+    if (!code) return;
+
+    showStep(2);
+
+    const schoolUrl = localStorage.getItem('ent_school_url');
+    const verifier  = localStorage.getItem('ent_pkce_verifier');
+
+    try {
+        const res = await fetch(
+            `/api/index?action=callback&code=${code}&url=${encodeURIComponent(schoolUrl)}&verifier=${verifier}`
+        );
+
+        const data = await res.json();
+
+        console.log("CALLBACK:", data);
+
+        if (!data.success) throw new Error(data.error);
+
+        localStorage.setItem('ent_logged', 'true');
+        localStorage.setItem('ent_session', JSON.stringify(data.session));
+        localStorage.setItem('ent_user', JSON.stringify(data.user));
+
+        window.location.replace('accueil.html');
+
+    } catch (err) {
+        showStep(3);
+        document.getElementById('errorMsg').textContent = err.message;
+    }
+}
+
+handleCallback();
 </script>
+
 </body>
 </html>
