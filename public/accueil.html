@@ -39,35 +39,47 @@
     </main>
 
     <script>
+        // Vérification de sécurité
         if (localStorage.getItem('ent_plus_logged') !== 'true') {
             window.location.replace("login.html");
         }
 
         async function init() {
-            try {
-                // 1. Profil
-                const pRes = await fetch('/get-profile');
-                const user = await pRes.json();
-                document.getElementById('userName').innerText = user.firstName + " " + user.lastName;
+            // On récupère la session sauvée lors du login
+            const sessionRaw = localStorage.getItem('scolengo_session');
+            if (!sessionRaw) return logout();
+            
+            const session = JSON.parse(sessionRaw);
 
-                // 2. Devoirs
-                const hRes = await fetch('/get-homework');
+            try {
+                // 1. Récupération des devoirs via l'API Vercel
+                // On utilise la route ?action=devoirs que nous avons créée dans api/index.js
+                const hRes = await fetch('/api/index?action=devoirs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session: session }) // On envoie la session au proxy
+                });
+
                 const data = await hRes.json();
+                
+                // Mise à jour du nom (si présent dans la session ou les données)
+                if (data.user) {
+                    document.getElementById('userName').innerText = data.user.firstName + " " + data.user.lastName;
+                }
+
                 const list = document.getElementById('hwList');
                 list.innerHTML = "";
 
-                // Ton code source montre que les données sont dans data.items
-                const items = data.items || [];
+                // Adaptation aux données de scolengo-api v3
+                const items = data.items || data || [];
 
-                if (items.length > 0) {
+                if (Array.isArray(items) && items.length > 0) {
                     items.forEach(d => {
-                        // Utilisation de dueDateTime (comme dans ton export TS)
                         const rawDate = d.dueDateTime || d.dueDate;
                         let dateDisplay = "À venir";
 
                         if (rawDate) {
-                            // On nettoie pour éviter le bug Invalid Date
-                            const dateObj = new Date(rawDate.toString().split('T')[0]);
+                            const dateObj = new Date(rawDate);
                             if (!isNaN(dateObj.getTime())) {
                                 dateDisplay = dateObj.toLocaleDateString('fr-FR', {
                                     day: 'numeric', 
@@ -76,7 +88,6 @@
                             }
                         }
 
-                        // Dans ton code TS : subject est une string ou d.subject.label
                         const subjectName = (typeof d.subject === 'object') ? d.subject.label : d.subject;
 
                         list.innerHTML += `
@@ -93,11 +104,12 @@
             } catch (e) {
                 console.error(e);
                 document.getElementById('status').innerText = "❌ ERREUR";
+                document.getElementById('status').style.background = "var(--danger)";
             }
         }
 
         function logout() {
-            localStorage.removeItem('ent_plus_logged');
+            localStorage.clear(); // On vide tout
             window.location.replace("login.html");
         }
 

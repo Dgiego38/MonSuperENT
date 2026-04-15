@@ -8,19 +8,22 @@
     <script>
         // --- SCRIPT D'AIGUILLAGE ÉCLAIR ---
         
-        // On vérifie instantanément si la clé de session est présente
+        // On vérifie si le marqueur de connexion est présent
         const isLogged = localStorage.getItem('ent_plus_logged') === 'true';
 
         if (isLogged) {
             // Utilisateur connecté -> On propulse vers l'accueil
-            // .replace() est crucial pour qu'on ne puisse pas faire "Retour"
             window.location.replace("accueil.html");
         } else {
-            // Pas de session -> Hop, à la page de connexion
+            // Pas de session -> Direction la page de connexion
             window.location.replace("login.html");
         }
     </script>
+    <style>
+        /* On met un fond sombre pour que ce soit plus joli pendant la demi-seconde de chargement */
+        body { background: #121212; }
+    </style>
 </head>
-<body style="background: white;">
-    </body>
+<body>
+</body>
 </html>
