@@ -86,7 +86,6 @@
     const statusText = document.getElementById('statusText');
     let searchTimeout;
 
-    // 1. GESTION DU CALLBACK
     async function checkCallback() {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
@@ -116,7 +115,6 @@
         }
     }
 
-    // 2. MOTEUR DE RECHERCHE
     schoolInput.addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
         const val = e.target.value;
@@ -148,45 +146,52 @@
         }, 350);
     });
 
-    // 3. RÉSOLUTION DYNAMIQUE DE L'URL
     async function startAuth(school) {
-        // A. On tente d'abord de récupérer l'URL fournie par Skolengo
+        // 1. On essaie de deviner l'URL si elle est absente
         let baseUrl = school.baseUrl || school.url || (school.fallback ? school.fallback.url : "");
-
-        // B. Si l'URL est vide ou incomplète (problème courant Grand-Est), on la reconstruit
-        if (!baseUrl || baseUrl.includes("skolengo.com")) {
-            console.log("Reconstruction dynamique pour :", school.name);
-            
-            // On nettoie le nom pour le format URL
-            let slug = school.name.toLowerCase()
-                .trim()
-                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlève accents
-                .replace(/college/g, "clg")  // Format standard ENT
-                .replace(/lycee/g, "lyc")    // Format standard ENT
-                .replace(/[^a-z0-9]/g, "-")  // Remplace tout le reste par des tirets
-                .replace(/-+/g, "-")         // Pas de doubles tirets
-                .replace(/^-|-$/g, "");      // Pas de tiret au début ou à la fin
-
-            // On ajoute le domaine MonBureauNumerique (majoritaire dans le Grand Est)
+        
+        if (!baseUrl && school.name) {
+            let slug = school.name.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                .replace(/college/g, "clg").replace(/lycee/g, "lyc").replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
             baseUrl = `https://${slug}.monbureaunumerique.fr`;
         }
 
-        // Nettoyage final (supprime le / à la fin)
-        baseUrl = baseUrl.trim().replace(/\/$/, "");
-        localStorage.setItem('temp_school_url', baseUrl);
+        // 2. LOGIQUE DE PORTAIL CENTRAL (Universel)
+        // Si l'URL contient un domaine connu, on utilise le portail racine pour plus de stabilité
+        let finalAuthUrl = baseUrl;
+        
+        const domains = {
+            "monbureaunumerique.fr": "https://www.monbureaunumerique.fr",
+            "ent77.seine-et-marne.fr": "https://ent77.seine-et-marne.fr",
+            "ecollege.est-ensemble.fr": "https://ecollege.est-ensemble.fr",
+            "savoirsnumeriques62.fr": "https://www.savoirsnumeriques62.fr",
+            "kosmos-education.com": "https://www.skolengo.com"
+        };
+
+        for (const [key, value] of Object.entries(domains)) {
+            if (baseUrl.includes(key)) {
+                finalAuthUrl = value;
+                break;
+            }
+        }
+
+        console.log("Cible d'authentification :", finalAuthUrl);
+
+        finalAuthUrl = finalAuthUrl.trim().replace(/\/$/, "");
+        localStorage.setItem('temp_school_url', finalAuthUrl);
         
         document.getElementById('step1').classList.remove('active');
         document.getElementById('step2').classList.add('active');
-        statusText.innerText = "Liaison avec l'ENT...";
+        statusText.innerText = "Liaison avec le portail...";
 
         try {
-            const res = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
+            const res = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(finalAuthUrl)}`);
             const data = await res.json();
             
             if(data.authURL) {
                 window.location.href = data.authURL;
             } else {
-                throw new Error("L'adresse générée (" + baseUrl + ") ne répond pas.");
+                throw new Error(data.error || "Portail injoignable.");
             }
         } catch (e) {
             alert("Erreur de liaison : " + e.message);
