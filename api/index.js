@@ -1,172 +1,112 @@
 const { Skolengo } = require('scolengo-api');
-const crypto = require('crypto');
 
 module.exports = async (req, res) => {
+    // Configuration des headers CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
     if (req.method === 'OPTIONS') return res.status(200).end();
 
+    // Récupération des données (GET ou POST)
     let body = {};
-    if (req.method === 'POST' && req.body) {
+    if (req.method === 'POST') {
         body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     }
-
     const query = { ...req.query, ...body };
     const action = query.action;
 
-    const getBaseUrl = () => {
-        const protocol =
-            req.headers['x-forwarded-proto'] ||
-            (req.headers.host.includes('localhost') ? 'http' : 'https');
-        return `${protocol}://${req.headers.host}`;
-    };
-
     try {
-
-        // ───────────────────────────────
-        // 🔍 SEARCH SCHOOL
-        // ───────────────────────────────
+        // 1. RECHERCHE D'ÉTABLISSEMENT
         if (action === 'search-school') {
             const q = query.q || query.text;
             if (!q || q.length < 3) return res.json([]);
 
             try {
                 const schools = await Skolengo.searchSchool({ text: q }, 10);
-
-                console.log("SCHOOLS:", schools);
-
-                return res.json(schools);
-
-            } catch (e) {
-                console.error("Erreur Search:", e.message);
-                return res.json([]);
+                return res.json(Array.isArray(schools) ? schools : []);
+            } catch (err) {
+                console.error("Erreur Skolengo Search:", err.message);
+                return res.json([]); // On renvoie vide au lieu de crash 500
             }
         }
 
-        // ───────────────────────────────
-        // 🔐 AUTH URL (FIX TOTAL)
-        // ───────────────────────────────
+        // 2. GÉNÉRATION URL D'AUTH (PKCE)
         if (action === 'get-auth-url') {
+            const schoolUrl = query.url;
+            if (!schoolUrl) return res.status(400).json({ error: "URL de l'établissement manquante" });
 
-            // 🔥 ON FORCE L’API OFFICIELLE (clé du fix)
-            const oidClient = await Skolengo.getOIDClient({
-                baseUrl: "https://api.skolengo.com"
-            });
-
-            const redirectUri = `${getBaseUrl()}/login.html`;
-
-            const codeVerifier = crypto.randomBytes(32).toString('base64url');
-            const codeChallenge = crypto
-                .createHash('sha256')
-                .update(codeVerifier)
-                .digest('base64url');
-
-            const authURL = oidClient.authorizationUrl({
-                redirect_uri: redirectUri,
-                scope: 'openid profile email',
-                response_type: 'code',
-                code_challenge_method: 'S256',
-                code_challenge: codeChallenge,
-                state: crypto.randomBytes(8).toString('hex'),
-            });
-
-            console.log("AUTH URL:", authURL);
-
+            const { authURL, codeVerifier } = await Skolengo.getAuthURL(schoolUrl);
+            
             return res.json({ authURL, codeVerifier });
         }
 
-        // ───────────────────────────────
-        // 🔁 CALLBACK (FIX TOTAL)
-        // ───────────────────────────────
+        // 3. CALLBACK (ÉCHANGE DU CODE CONTRE SESSION)
         if (action === 'callback') {
-            const { code, verifier } = query;
-
-            if (!code || !verifier) {
-                return res.status(400).json({
-                    error: "Paramètres manquants"
-                });
+            const { code, verifier, url } = query;
+            if (!code || !verifier || !url) {
+                return res.status(400).json({ error: "Paramètres manquants pour le callback" });
             }
 
-            const oid = await Skolengo.getOIDClient({
-                baseUrl: "https://api.skolengo.com"
-            });
+            try {
+                const client = await Skolengo.login(url, code, verifier);
+                const session = client.getConfigObject();
+                const user = await client.getUser();
 
-            const redirectUri = `${getBaseUrl()}/login.html`;
-
-            const tokenSet = await oid.callback(
-                redirectUri,
-                { code },
-                { code_verifier: verifier }
-            );
-
-            const client = await Skolengo.fromConfigObject({
-                tokenSet
-            });
-
-            const userInfo = await client.getUserInfo();
-
-            return res.json({
-                success: true,
-                session: client.toConfigObject(),
-                user: userInfo
-            });
+                return res.json({ success: true, session, user });
+            } catch (err) {
+                return res.status(401).json({ success: false, error: "Échec de l'authentification" });
+            }
         }
 
-        // ───────────────────────────────
-        // 📚 DATA
-        // ───────────────────────────────
-        if (action === 'devoirs') {
-            if (!body.session) return res.status(401).json({ error: "Non authentifié" });
+        // --- ACTIONS NÉCESSITANT UNE SESSION ---
 
-            const client = await Skolengo.fromConfigObject(body.session);
-            const items = await client.getHomeworks();
-
-            return res.json({ success: true, items: items || [] });
+        if (!query.session) {
+            return res.status(401).json({ error: "Session manquante" });
         }
 
+        const client = await Skolengo.fromConfigObject(query.session);
+
+        // 4. CAHIER DE TEXTE (DEVOIRS)
+        if (action === 'homework') {
+            const homeworks = await client.getHomeworks();
+            return res.json({ items: homeworks || [] });
+        }
+
+        // 5. EMPLOI DU TEMPS
         if (action === 'agenda') {
-            if (!body.session) return res.status(401).json({ error: "Non authentifié" });
-
-            const client = await Skolengo.fromConfigObject(body.session);
-
             const start = query.from || new Date().toISOString().split('T')[0];
             const end = query.to || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-
-            const items = await client.getAgenda(start, end);
-
-            return res.json({ success: true, items: items || [] });
+            const lessons = await client.getAgenda(start, end);
+            return res.json({ items: lessons || [] });
         }
 
+        // 6. ÉVALUATIONS / NOTES
         if (action === 'evaluations') {
-            if (!body.session) return res.status(401).json({ error: "Non authentifié" });
-
-            const client = await Skolengo.fromConfigObject(body.session);
-            const items = await client.getEvaluations();
-
-            return res.json({ success: true, items: items || [] });
+            const evals = await client.getEvaluations();
+            return res.json({ items: evals || [] });
         }
 
+        // 7. MESSAGERIE
         if (action === 'messages') {
-            if (!body.session) return res.status(401).json({ error: "Non authentifié" });
-
-            const client = await Skolengo.fromConfigObject(body.session);
-            const items = await client.getCommunications();
-
-            return res.json({ success: true, items: items || [] });
+            const messages = await client.getCommunications();
+            return res.json({ items: messages || [] });
         }
 
-        return res.json({
-            status: "ok",
-            service: "ENT+ API FIXED",
-        });
+        // 8. ABSENCES
+        if (action === 'absences') {
+            const absences = await client.getAbsences();
+            return res.json({ items: absences || [] });
+        }
+
+        // Route par défaut
+        return res.json({ status: "ready", service: "ENT+ API" });
 
     } catch (error) {
-        console.error("[API ERROR]", error.message);
-
-        return res.status(500).json({
-            error: error.message,
-            action: action
+        console.error("[CRITICAL ERROR]", error);
+        return res.status(500).json({ 
+            error: "Erreur interne du serveur", 
+            details: error.message 
         });
     }
 };

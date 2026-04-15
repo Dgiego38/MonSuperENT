@@ -3,8 +3,9 @@
   "version": "2.0.0",
   "description": "ENT+ - Interface Skolengo moderne",
   "dependencies": {
+    "node-fetch": "^2.7.0",
     "scolengo-api": "^3.0.5",
-    "node-fetch": "^2.7.0"
+    "scolengo-token": "github:maelgangloff/scolengo-token"
   },
   "engines": {
     "node": ">=18"

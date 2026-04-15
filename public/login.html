@@ -5,6 +5,121 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connexion — ENT+</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        :root {
+            --login-bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --input-bg: rgba(15, 23, 42, 0.6);
+        }
+
+        body {
+            margin: 0;
+            background: var(--login-bg);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            color: var(--text-1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .login-bg {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%);
+            z-index: -1;
+        }
+
+        .login-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 28px;
+            width: 100%;
+            max-width: 420px;
+            padding: 40px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
+        }
+
+        .login-logo { text-align: center; margin-bottom: 32px; }
+        .login-logo-icon { font-size: 54px; margin-bottom: 8px; }
+        .login-title { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; color: #fff; }
+        .login-subtitle { font-size: 14px; color: var(--text-3); margin-top: 6px; }
+
+        .search-field {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px 18px;
+            color: white;
+            font-size: 16px;
+            transition: all 0.2s;
+            outline: none;
+            box-sizing: border-box;
+        }
+        .search-field:focus { 
+            border-color: var(--blue); 
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); 
+        }
+
+        .search-results {
+            margin-top: 8px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            max-height: 220px;
+            overflow-y: auto;
+            background: #1e293b;
+            display: none;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3);
+            position: absolute;
+            width: 100%;
+            z-index: 50;
+        }
+
+        .result-item {
+            padding: 14px 18px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+        .result-item:last-child { border-bottom: none; }
+        .result-item:hover { background: rgba(59, 130, 246, 0.15); }
+        .result-item strong { display: block; font-size: 14px; color: #fff; }
+        .result-item small { font-size: 12px; color: var(--text-3); }
+
+        .spinner {
+            width: 48px; height: 48px;
+            border: 4px solid rgba(59, 130, 246, 0.1);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 24px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .login-status { text-align: center; }
+        .btn-primary {
+            background: var(--blue);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        .btn-primary:active { transform: scale(0.98); }
+    </style>
 </head>
 <body>
 
@@ -13,43 +128,36 @@
 <div class="login-wrapper">
     <div class="login-card">
 
-        <!-- STEP 1 -->
         <div id="step1">
             <div class="login-logo">
                 <div class="login-logo-icon">🏫</div>
                 <div class="login-title">ENT+</div>
-                <div class="login-subtitle">Connexion à ton établissement</div>
+                <div class="login-subtitle">Connecte-toi à ton établissement</div>
             </div>
 
             <div class="search-input-wrap" style="position:relative">
-                <input
-                    type="text"
-                    id="schoolInput"
-                    class="search-field"
-                    placeholder="Nom de ton collège ou ville..."
-                    autocomplete="off"
-                    autofocus
-                >
+                <input type="text" id="schoolInput" class="search-field" placeholder="Ex: Jean Moulin, Mende..." autocomplete="off">
                 <div id="searchResults" class="search-results"></div>
             </div>
+            <p style="text-align:center; font-size:12px; color:var(--text-3); margin-top:24px">
+                Utilise tes identifiants Skolengo habituels.
+            </p>
         </div>
 
-        <!-- STEP 2 -->
         <div id="step2" style="display:none">
             <div class="login-status">
                 <div class="spinner"></div>
-                <div class="login-status-title" id="statusTitle">Connexion...</div>
-                <div class="login-status-sub" id="statusSub">Préparation</div>
+                <div class="login-status-title" id="statusTitle" style="font-weight:700; font-size:18px; color:#fff">Chargement...</div>
+                <div class="login-status-sub" id="statusSub" style="color:var(--text-3); margin-top:8px">Veuillez patienter</div>
             </div>
         </div>
 
-        <!-- STEP 3 -->
         <div id="step3" style="display:none">
             <div class="login-status">
-                <span style="font-size:48px">❌</span>
-                <div class="login-status-title">Erreur</div>
-                <div class="login-status-sub" id="errorMsg"></div>
-                <button onclick="resetLogin()">Réessayer</button>
+                <div style="font-size:48px; margin-bottom:16px">⚠️</div>
+                <div class="login-status-title" style="color:var(--red); font-weight:700; font-size:18px">Erreur de connexion</div>
+                <div id="errorMsg" style="margin: 8px 0 24px; color:var(--text-2); font-size:14px"></div>
+                <button class="btn-primary" onclick="window.location.reload()">Réessayer</button>
             </div>
         </div>
 
@@ -57,155 +165,111 @@
 </div>
 
 <script>
-/* ─────────────────────────────
-   AUTO LOGIN
-───────────────────────────── */
-if (localStorage.getItem('ent_logged') === 'true') {
-    window.location.replace('accueil.html');
-}
+    const schoolInput = document.getElementById('schoolInput');
+    const resultsDiv = document.getElementById('searchResults');
+    let searchTimer;
 
-/* ─────────────────────────────
-   VARIABLES
-───────────────────────────── */
-const schoolInput = document.getElementById('schoolInput');
-const resultsDiv  = document.getElementById('searchResults');
-let timer;
+    function showStep(n) {
+        [1,2,3].forEach(i => document.getElementById(`step${i}`).style.display = i === n ? 'block' : 'none');
+    }
 
-/* ─────────────────────────────
-   UI
-───────────────────────────── */
-function showStep(n) {
-    ['step1','step2','step3'].forEach((id, i) => {
-        document.getElementById(id).style.display = (i === n-1) ? 'block' : 'none';
+    // Gestion de la recherche
+    schoolInput.addEventListener('input', e => {
+        clearTimeout(searchTimer);
+        const val = e.target.value.trim();
+        if (val.length < 3) { resultsDiv.style.display = 'none'; return; }
+
+        searchTimer = setTimeout(async () => {
+            try {
+                const r = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
+                const schools = await r.json();
+                
+                resultsDiv.innerHTML = '';
+                if (!schools || schools.length === 0) {
+                    resultsDiv.innerHTML = '<div class="result-item"><small>Aucun établissement trouvé</small></div>';
+                } else {
+                    schools.forEach(s => {
+                        const div = document.createElement('div');
+                        div.className = 'result-item';
+                        div.innerHTML = `<strong>${s.name}</strong><small>${s.location?.city || ''}</small>`;
+                        div.onclick = () => startAuth(s);
+                        resultsDiv.appendChild(div);
+                    });
+                }
+                resultsDiv.style.display = 'block';
+            } catch (err) {
+                console.error("Erreur API:", err);
+            }
+        }, 400);
     });
-}
 
-function resetLogin() {
-    localStorage.clear();
-    showStep(1);
-    schoolInput.value = '';
-}
+    // Lancement de l'authentification
+    async function startAuth(school) {
+        let baseUrl = school.url || school.baseUrl || (school.location && school.location.homepage);
+        
+        // Patch spécifique pour Occitanie si l'URL manque
+        if (!baseUrl && school.name.toLowerCase().includes('occitanie')) baseUrl = "https://www.ent-occitanie.fr";
 
-/* ─────────────────────────────
-   SEARCH
-───────────────────────────── */
-schoolInput.addEventListener('input', e => {
-    clearTimeout(timer);
-    const val = e.target.value.trim();
-
-    if (val.length < 3) {
-        resultsDiv.style.display = 'none';
-        return;
-    }
-
-    timer = setTimeout(async () => {
-        try {
-            const res = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
-            const schools = await res.json();
-
-            console.log("SCHOOLS:", schools);
-
-            resultsDiv.innerHTML = '';
-
-            if (!schools.length) return;
-
-            resultsDiv.style.display = 'block';
-
-            schools.forEach(school => {
-                const div = document.createElement('div');
-                div.className = 'result-item';
-
-                div.textContent = school.name;
-
-                div.onclick = () => startAuth(school);
-
-                resultsDiv.appendChild(div);
-            });
-
-        } catch (e) {
-            console.error(e);
+        if (!baseUrl) {
+            alert("L'URL technique de cet établissement est introuvable.");
+            return;
         }
-    }, 300);
-});
 
-/* ─────────────────────────────
-   AUTH
-───────────────────────────── */
-async function startAuth(school) {
-    showStep(2);
+        showStep(2);
+        document.getElementById('statusSub').textContent = "Redirection vers le portail...";
+        localStorage.setItem('ent_school_url', baseUrl);
 
-    document.getElementById('statusTitle').textContent =
-        "Connexion à " + school.name;
+        try {
+            const r = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
+            const data = await r.json();
+            if (data.error) throw new Error(data.error);
 
-    // 🔥 IMPORTANT : URL toujours définie
-    let baseUrl = school.baseUrl || "https://www.monbureaunumerique.fr";
-
-    console.log("BASE URL:", baseUrl);
-
-    localStorage.setItem('ent_school_url', baseUrl);
-
-    try {
-        const res = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
-        const data = await res.json();
-
-        console.log("AUTH:", data);
-
-        if (!data.authURL) throw new Error("Erreur connexion ENT");
-
-        localStorage.setItem('ent_pkce_verifier', data.codeVerifier);
-
-        document.getElementById('statusSub').textContent =
-            "Redirection...";
-
-        setTimeout(() => {
+            localStorage.setItem('ent_pkce_verifier', data.codeVerifier);
             window.location.href = data.authURL;
-        }, 500);
-
-    } catch (err) {
-        showStep(3);
-        document.getElementById('errorMsg').textContent = err.message;
+        } catch (err) {
+            showStep(3);
+            document.getElementById('errorMsg').textContent = err.message;
+        }
     }
-}
 
-/* ─────────────────────────────
-   CALLBACK
-───────────────────────────── */
-async function handleCallback() {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
+    // Gestion du retour (Callback)
+    async function handleCallback() {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        if (!code) return;
 
-    if (!code) return;
+        showStep(2);
+        document.getElementById('statusTitle').textContent = "Vérification...";
+        document.getElementById('statusSub').textContent = "Récupération de votre profil";
 
-    showStep(2);
+        const verifier = localStorage.getItem('ent_pkce_verifier');
+        const url = localStorage.getItem('ent_school_url');
+        
+        // On nettoie l'URL tout de suite
+        window.history.replaceState({}, '', '/login.html');
 
-    const schoolUrl = localStorage.getItem('ent_school_url');
-    const verifier  = localStorage.getItem('ent_pkce_verifier');
+        try {
+            if (!verifier || !url) throw new Error("Session expirée. Veuillez recommencer.");
 
-    try {
-        const res = await fetch(
-            `/api/index?action=callback&code=${code}&url=${encodeURIComponent(schoolUrl)}&verifier=${verifier}`
-        );
+            const r = await fetch(`/api/index?action=callback&code=${code}&verifier=${verifier}&url=${encodeURIComponent(url)}`);
+            const data = await r.json();
+            
+            if (!data.success) throw new Error(data.error || "Échec de l'identification");
 
-        const data = await res.json();
+            // Sauvegarde des infos
+            localStorage.setItem('ent_logged', 'true');
+            localStorage.setItem('ent_session', JSON.stringify(data.session));
+            localStorage.setItem('ent_user', JSON.stringify(data.user));
 
-        console.log("CALLBACK:", data);
-
-        if (!data.success) throw new Error(data.error);
-
-        localStorage.setItem('ent_logged', 'true');
-        localStorage.setItem('ent_session', JSON.stringify(data.session));
-        localStorage.setItem('ent_user', JSON.stringify(data.user));
-
-        window.location.replace('accueil.html');
-
-    } catch (err) {
-        showStep(3);
-        document.getElementById('errorMsg').textContent = err.message;
+            document.getElementById('statusTitle').textContent = `Bonjour ${data.user.firstName || ''} !`;
+            setTimeout(() => window.location.replace('accueil.html'), 800);
+        } catch (err) {
+            showStep(3);
+            document.getElementById('errorMsg').textContent = err.message;
+        }
     }
-}
 
-handleCallback();
+    handleCallback();
 </script>
-
 </body>
 </html>
