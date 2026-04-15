@@ -12,7 +12,6 @@
 <div class="login-wrapper">
     <div class="login-card">
 
-        <!-- Step 1 : Recherche école -->
         <div id="step1">
             <div class="login-logo">
                 <div class="login-logo-icon">🏫</div>
@@ -38,7 +37,6 @@
             </p>
         </div>
 
-        <!-- Step 2 : Chargement -->
         <div id="step2" style="display:none">
             <div class="login-status">
                 <div class="spinner"></div>
@@ -47,7 +45,6 @@
             </div>
         </div>
 
-        <!-- Step 3 : Erreur -->
         <div id="step3" style="display:none">
             <div class="login-status">
                 <span style="font-size:48px">⚠️</span>
@@ -60,7 +57,7 @@
 </div>
 
 <script>
-    // Si déjà connecté → accueil
+    // Sécurité : redirection si déjà loggé
     if (localStorage.getItem('ent_logged') === 'true') {
         window.location.replace('accueil.html');
     }
@@ -81,11 +78,11 @@
         schoolInput.focus();
     }
 
-    // ── Recherche école ──────────────────────────────────────
+    // ── Recherche d'école ─────────────────────────────────────
     schoolInput.addEventListener('input', e => {
         clearTimeout(searchTimer);
         const val = e.target.value.trim();
-        if (val.length < 2) { resultsDiv.style.display = 'none'; return; }
+        if (val.length < 3) { resultsDiv.style.display = 'none'; return; }
 
         searchTimer = setTimeout(async () => {
             try {
@@ -93,19 +90,20 @@
                 const schools = await r.json();
 
                 resultsDiv.innerHTML = '';
-                if (!schools || schools.length === 0) {
+                // Vérification robuste du format de réponse
+                if (!Array.isArray(schools) || schools.length === 0) {
                     resultsDiv.style.display = 'none'; return;
                 }
 
                 resultsDiv.style.display = 'block';
-                schools.slice(0, 12).forEach(school => {
+                schools.slice(0, 10).forEach(school => {
                     const city = (school.location?.city || school.city || '').replace('CEDEX','').trim();
                     const zip  = school.location?.zipCode || '';
                     const div  = document.createElement('div');
                     div.className = 'result-item';
                     div.innerHTML = `
                         <div class="result-icon">🏫</div>
-                        <div>
+                        <div style="flex:1">
                             <div class="result-name">${school.name}</div>
                             <div class="result-detail">${city}${zip ? ' ('+zip+')' : ''}</div>
                         </div>
@@ -117,47 +115,65 @@
             } catch(err) {
                 console.error('Search error:', err);
             }
-        }, 300);
+        }, 350);
     });
 
+    // Fermer les résultats au clic extérieur
     document.addEventListener('click', e => {
         if (!schoolInput.contains(e.target) && !resultsDiv.contains(e.target)) {
             resultsDiv.style.display = 'none';
         }
     });
 
-    // ── Démarrage auth ───────────────────────────────────────
+    // ── Démarrage de l'authentification ───────────────────────
     async function startAuth(school) {
         resultsDiv.style.display = 'none';
         showStep(2);
         document.getElementById('statusTitle').textContent = `Liaison avec ${school.name}`;
-        document.getElementById('statusSub').textContent = 'Initialisation du protocole OIDC...';
+        
+        // 1. Recherche récursive de l'URL dans l'objet school
+        function findUrl(obj) {
+            if (!obj || typeof obj !== 'object') return null;
+            if (typeof obj.url === 'string' && obj.url.startsWith('http')) return obj.url;
+            if (typeof obj.baseUrl === 'string' && obj.baseUrl.startsWith('http')) return obj.baseUrl;
+            if (obj.location?.homepage) return obj.location.homepage;
+            for (let k in obj) { let r = findUrl(obj[k]); if (r) return r; }
+            return null;
+        }
 
-        // Extraction URL
-        let baseUrl = school.url || school.baseUrl ||
-                      school.location?.homepage ||
-                      school.links?.[0]?.href || '';
+        let baseUrl = findUrl(school);
+
+        // 2. Correction manuelle pour les ENT régionaux (ex: Mende / Occitanie)
+        if (!baseUrl && school.name?.toLowerCase().includes('mende')) {
+            baseUrl = "https://www.ent-occitanie.fr";
+        }
 
         if (!baseUrl) {
             showStep(3);
-            document.getElementById('errorMsg').textContent = "Adresse ENT introuvable pour cet établissement.";
+            document.getElementById('errorMsg').textContent = "L'adresse technique de cet établissement n'est pas fournie. Essayez le nom de votre ville.";
             return;
         }
 
+        // Nettoyage de l'URL
         baseUrl = baseUrl.trim().replace(/\/$/, '');
         localStorage.setItem('ent_school_url', baseUrl);
 
         try {
+            // Appel au backend pour générer l'URL et le PKCE Verifier
             const r = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
             const data = await r.json();
 
-            if (!data.authURL) throw new Error(data.error || data.details || "URL d'auth non reçue");
+            if (!data.authURL || !data.codeVerifier) {
+                throw new Error(data.error || "Impossible de préparer la connexion sécurisée.");
+            }
 
-            // Stocker le verifier PKCE pour le callback
+            // Sauvegarde du verifier pour le callback (étape finale)
             localStorage.setItem('ent_pkce_verifier', data.codeVerifier);
 
-            document.getElementById('statusSub').textContent = 'Redirection vers EduConnect...';
-            setTimeout(() => { window.location.href = data.authURL; }, 400);
+            document.getElementById('statusSub').textContent = 'Redirection vers le portail de connexion...';
+            
+            // Petit délai pour laisser le temps au localStorage
+            setTimeout(() => { window.location.href = data.authURL; }, 300);
 
         } catch(err) {
             showStep(3);
@@ -165,43 +181,48 @@
         }
     }
 
-    // ── Traitement du callback OAuth ─────────────────────────
+    // ── Traitement du retour (Callback) ───────────────────────
     async function handleCallback() {
-        const params    = new URLSearchParams(window.location.search);
-        const code      = params.get('code');
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
         const schoolUrl = localStorage.getItem('ent_school_url');
-        const verifier  = localStorage.getItem('ent_pkce_verifier');
+        const verifier = localStorage.getItem('ent_pkce_verifier');
 
-        if (!code) return; // Pas de callback, afficher step1 normal
+        // Si on n'a pas de code dans l'URL, on est juste sur la page de login normale
+        if (!code) return; 
 
         showStep(2);
-        document.getElementById('statusTitle').textContent = 'Finalisation...';
-        document.getElementById('statusSub').textContent = 'Vérification de la session...';
+        document.getElementById('statusTitle').textContent = 'Vérification...';
+        document.getElementById('statusSub').textContent = 'Finalisation de la session Skolengo';
 
-        // Nettoyer l'URL
+        // Nettoyer l'URL proprement
         window.history.replaceState({}, '', '/login.html');
 
         try {
-            if (!schoolUrl || !verifier) throw new Error("Données de session manquantes. Recommencez.");
+            if (!schoolUrl || !verifier) {
+                throw new Error("Session expirée ou invalide. Veuillez réessayer la recherche.");
+            }
 
             const r = await fetch(
                 `/api/index?action=callback&code=${encodeURIComponent(code)}&url=${encodeURIComponent(schoolUrl)}&verifier=${encodeURIComponent(verifier)}`
             );
             const data = await r.json();
 
-            if (!data.success) throw new Error(data.error || "Erreur callback");
+            if (!data.success) throw new Error(data.error || "Échec de l'authentification.");
 
-            // Sauvegarde session
+            // Sauvegarde définitive des données
             localStorage.setItem('ent_logged', 'true');
             localStorage.setItem('ent_session', JSON.stringify(data.session));
             localStorage.setItem('ent_user', JSON.stringify(data.user));
+            
+            // Nettoyage temporaire
             localStorage.removeItem('ent_pkce_verifier');
             localStorage.removeItem('ent_school_url');
 
-            document.getElementById('statusTitle').textContent = `Bienvenue, ${data.user?.firstName || ''} !`;
-            document.getElementById('statusSub').textContent = 'Chargement de votre espace...';
+            document.getElementById('statusTitle').textContent = `Bonjour ${data.user?.firstName || ''} !`;
+            document.getElementById('statusSub').textContent = 'Ouverture de votre tableau de bord...';
 
-            setTimeout(() => { window.location.replace('accueil.html'); }, 600);
+            setTimeout(() => { window.location.replace('accueil.html'); }, 800);
 
         } catch(err) {
             showStep(3);
@@ -209,6 +230,7 @@
         }
     }
 
+    // Lancer la détection du callback au chargement
     handleCallback();
 </script>
 </body>
