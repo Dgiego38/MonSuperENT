@@ -4,63 +4,163 @@
     <meta charset="UTF-8">
     <title>Connexion — ENT+</title>
     <link rel="stylesheet" href="style.css">
-</head>
-<body class="login-wrapper">
+    <style>
+        .search-results {
+            background: white;
+            border-radius: 12px;
+            margin-top: 10px;
+            max-height: 250px;
+            overflow-y: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: none;
+            position: absolute;
+            width: 100%;
+            left: 0;
+            z-index: 100;
+        }
+        .result-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            text-align: left;
+            transition: 0.2s;
+        }
+        .result-item:hover { background: #f5f5f7; }
+        .result-item strong { display: block; color: #1d1d1f; font-size: 14px; }
+        .result-item span { font-size: 12px; color: #86868b; }
 
-    <div class="login-card">
-        <h1>ENT+</h1>
-        <p>Collez votre jeton Scolengo pour commencer</p>
-
-        <textarea id="tokenInput" class="input-area" placeholder='{"tokenSet": ...}'></textarea>
+        .step { display: none; }
+        .step.active { display: block; animation: fadeIn 0.4s ease; }
         
-        <button id="connectBtn" class="btn-login">Se connecter</button>
-        
-        <div id="loginMsg"></div>
-    </div>
-
-    <script>
-        // Si déjà connecté, on redirige vers l'accueil directement
-        if (localStorage.getItem('ent_plus_logged') === 'true') {
-            window.location.replace("accueil.html");
+        @keyframes fadeIn { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
         }
 
-        const btn = document.getElementById('connectBtn');
-        const msg = document.getElementById('loginMsg');
+        .input-container { position: relative; width: 100%; }
+    </style>
+</head>
+<body>
 
-        btn.onclick = async () => {
-            const tokenValue = document.getElementById('tokenInput').value.trim();
-            
-            if(!tokenValue) return;
+<div class="login-wrapper">
+    <div class="login-card">
+        <h1>🏫 ENT+</h1>
+        
+        <div id="step1" class="step active">
+            <p style="margin-bottom: 20px; color: #86868b;">Trouvez votre établissement pour vous connecter</p>
+            <div class="input-container">
+                <input type="text" id="schoolInput" class="btn-login" 
+                       style="background:white; color:black; border:1px solid #ddd; text-align:left;" 
+                       placeholder="Nom (ex: Pierre), Ville...">
+                <div id="results" class="search-results"></div>
+            </div>
+        </div>
 
-            btn.disabled = true;
-            btn.innerText = "Connexion...";
+        <div id="step2" class="step">
+            <div class="loading-wave" style="margin: 30px 0;">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+            <p id="statusText" style="color: #1d1d1f; font-weight: 500;">Préparation de la connexion sécurisée...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    const schoolInput = document.getElementById('schoolInput');
+    const resultsDiv = document.getElementById('results');
+    const statusText = document.getElementById('statusText');
+
+    // 1. GESTION DU RETOUR DE CONNEXION (CALLBACK)
+    async function checkCallback() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const savedUrl = localStorage.getItem('temp_school_url');
+
+        if (code && savedUrl) {
+            document.getElementById('step1').classList.remove('active');
+            document.getElementById('step2').classList.add('active');
+            statusText.innerText = "Finalisation de la connexion...";
 
             try {
-                // ANALYSE DU JETON
-                // On vérifie que c'est bien du JSON valide avant de sauvegarder
-                const parsedToken = JSON.parse(tokenValue);
+                const res = await fetch(`/api/index?action=callback&code=${code}&url=${encodeURIComponent(savedUrl)}`);
+                const data = await res.json();
 
-                // SAUVEGARDE LOCALE (Adieu le serveur pour cette étape !)
-                localStorage.setItem('scolengo_session', JSON.stringify(parsedToken));
-                localStorage.setItem('ent_plus_logged', 'true');
-
-                // Succès visuel
-                msg.style.color = "#10b981";
-                msg.innerText = "Synchronisation réussie !";
-                
-                setTimeout(() => {
-                    window.location.replace("accueil.html");
-                }, 800);
-
-            } catch(e) {
-                // Si le JSON est mal collé ou invalide
-                msg.style.color = "#ff4b4b"; 
-                msg.innerText = "Erreur : Format du jeton invalide";
-                btn.disabled = false;
-                btn.innerText = "Se connecter";
-                console.error("Erreur de parsing JSON:", e);
+                if (data.success) {
+                    localStorage.setItem('ent_plus_logged', 'true');
+                    localStorage.setItem('scolengo_session', JSON.stringify(data.session));
+                    localStorage.setItem('ent_user', JSON.stringify(data.user));
+                    localStorage.removeItem('temp_school_url');
+                    window.location.href = "accueil.html";
+                } else {
+                    alert("Erreur de session : " + data.error);
+                    window.location.href = "login.html";
+                }
+            } catch (e) {
+                console.error(e);
+                window.location.href = "login.html";
             }
-        };
-    </script>
+        }
+    }
+
+    // 2. RECHERCHE D'ÉTABLISSEMENT
+    schoolInput.addEventListener('input', async (e) => {
+        const val = e.target.value;
+        if (val.length < 3) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        try {
+            // On utilise bien ?action=search-school&q=
+            const res = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
+            const schools = await res.json();
+
+            resultsDiv.innerHTML = "";
+            if (schools && schools.length > 0) {
+                resultsDiv.style.display = 'block';
+                schools.forEach(s => {
+                    const div = document.createElement('div');
+                    div.className = 'result-item';
+                    const city = s.address ? s.address.city : (s.city || "");
+                    
+                    div.innerHTML = `<strong>${s.name}</strong><span>${city}</span>`;
+                    
+                    div.onclick = async () => {
+                        const baseUrl = s.baseUrl || s.url;
+                        localStorage.setItem('temp_school_url', baseUrl);
+                        
+                        document.getElementById('step1').classList.remove('active');
+                        document.getElementById('step2').classList.add('active');
+                        statusText.innerText = "Redirection vers le portail officiel...";
+
+                        // On récupère l'URL de redirection
+                        const authRes = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
+                        const authData = await authRes.json();
+                        
+                        if(authData.authURL) {
+                            window.location.href = authData.authURL;
+                        } else {
+                            alert("Impossible de générer le lien de connexion.");
+                            location.reload();
+                        }
+                    };
+                    resultsDiv.appendChild(div);
+                });
+            }
+        } catch (err) {
+            console.error("Erreur recherche:", err);
+        }
+    });
+
+    // Fermer les résultats si on clique ailleurs
+    document.addEventListener('click', (e) => {
+        if (!schoolInput.contains(e.target)) resultsDiv.style.display = 'none';
+    });
+
+    // Vérifier si on revient d'une authentification au chargement
+    checkCallback();
+</script>
 </body>
 </html>

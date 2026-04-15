@@ -5,37 +5,55 @@
     <title>Cahier de Texte — ENT+</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        /* Style pour la fenêtre de détails (Modale) */
+        /* Modale Apple Style */
         .modal {
             display: none;
             position: fixed;
             z-index: 1000;
             left: 0; top: 0;
             width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.5);
-            backdrop-filter: blur(5px);
+            background-color: rgba(0,0,0,0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            animation: fadeIn 0.3s ease;
         }
         .modal-content {
-            background-color: white;
-            margin: 10% auto;
-            padding: 25px;
-            border-radius: 20px;
-            width: 80%;
-            max-width: 600px;
-            max-height: 70vh;
+            background-color: rgba(255, 255, 255, 0.95);
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 24px;
+            width: 90%;
+            max-width: 650px;
+            max-height: 80vh;
             overflow-y: auto;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            position: relative;
         }
         .close-btn {
-            float: right;
-            font-size: 24px;
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            font-size: 28px;
             cursor: pointer;
             color: var(--apple-gray);
+            background: #eee;
+            width: 35px;
+            height: 35px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
         }
-        .hw-card { cursor: pointer; transition: transform 0.2s; }
-        .hw-card:hover { transform: scale(1.02); }
-        .detail-html { line-height: 1.6; color: #333; margin-top: 20px; }
-        .detail-html img { max-width: 100%; height: auto; border-radius: 8px; }
+        .detail-html { 
+            line-height: 1.7; 
+            color: #1d1d1f; 
+            margin-top: 20px; 
+            font-size: 16px;
+        }
+        .detail-html img { max-width: 100%; height: auto; border-radius: 12px; margin: 10px 0; }
+        .detail-html p { margin-bottom: 1em; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -55,11 +73,20 @@
 
     <main class="main-content">
         <header class="header-top">
-            <div class="user-info"><span id="userName">Chargement...</span></div>
+            <div class="user-info"><span id="userName">Élève</span></div>
         </header>
 
-        <h1 class="section-title">Vos Devoirs</h1>
-        <div class="hw-grid" id="fullHwList"></div>
+        <h1 class="section-title">Travail à faire</h1>
+        <div id="fullHwList" class="hw-grid">
+            <div class="loader-container" style="grid-column: 1/-1; text-align: center; padding: 50px;">
+                <div class="loading-wave">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+                <p style="color:var(--apple-gray); margin-top:15px; font-weight:500;">Mise à jour du cahier de texte...</p>
+            </div>
+        </div>
     </main>
 
     <div id="hwModal" class="modal">
@@ -72,74 +99,98 @@
     <script>
         let allHomeworks = [];
 
-        // Vérification de connexion
+        // Sécurité session
         if (localStorage.getItem('ent_plus_logged') !== 'true') {
             window.location.replace("login.html");
         }
 
-        async function init() {
-            try {
-                // 1. On récupère l'utilisateur depuis le localStorage (plus de fetch /get-profile)
-                const userRaw = localStorage.getItem('ent_user');
-                if (userRaw) {
-                    const user = JSON.parse(userRaw);
-                    document.getElementById('userName').innerText = user.firstName + " " + user.lastName;
+        function renderDevoirs(data) {
+            // Skolengo peut renvoyer les items directement ou dans .items
+            allHomeworks = Array.isArray(data) ? data : (data.items || []);
+            const list = document.getElementById('fullHwList');
+            
+            if (allHomeworks.length === 0) {
+                list.innerHTML = `
+                    <div style="grid-column:1/-1; text-align:center; padding:40px;">
+                        <p style='color:var(--apple-gray); font-size:18px;'>🎉 Aucun devoir pour le moment !</p>
+                    </div>`;
+                return;
+            }
+
+            // Tri par date la plus proche
+            allHomeworks.sort((a, b) => new Date(a.dueDateTime || a.dueDate) - new Date(b.dueDateTime || b.dueDate));
+
+            let html = "";
+            allHomeworks.forEach((d, index) => {
+                const rawDate = d.dueDateTime || d.dueDate;
+                let dateDisplay = "Date inconnue";
+
+                if (rawDate) {
+                    const dateObj = new Date(rawDate);
+                    dateDisplay = dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
                 }
 
-                // 2. On récupère la session pour l'API
-                const sessionRaw = localStorage.getItem('scolengo_session');
-                if (!sessionRaw) return window.location.replace("login.html");
-                const session = JSON.parse(sessionRaw);
+                // Récupération sécurisée de la matière
+                let subjectName = "Matière";
+                if (d.subject) {
+                    subjectName = typeof d.subject === 'object' ? (d.subject.label || d.subject.name) : d.subject;
+                }
 
-                // 3. Appel à l'API Vercel
-                const hRes = await fetch('/api/index?action=devoirs', {
+                html += `
+                    <div class="hw-card" onclick="showDetail(${index})">
+                        <div class="subject-tag">${subjectName.toUpperCase()}</div>
+                        <div style="font-weight: 700; font-size: 17px; margin: 8px 0 4px 0; color:#1d1d1f;">
+                            ${d.title || "Consulter le contenu"}
+                        </div>
+                        <div style="color: var(--apple-blue); font-size: 13px; font-weight:600;">
+                            Pour le ${dateDisplay}
+                        </div>
+                    </div>
+                `;
+            });
+            list.innerHTML = html;
+        }
+
+        async function init() {
+            // Affichage du nom de l'utilisateur
+            const userRaw = localStorage.getItem('ent_user');
+            if (userRaw) {
+                const user = JSON.parse(userRaw);
+                document.getElementById('userName').innerText = `${user.firstName} ${user.lastName}`;
+            }
+
+            // 1. Affichage du cache pour la rapidité
+            const cached = localStorage.getItem('cached_homeworks');
+            if (cached) {
+                renderDevoirs(JSON.parse(cached));
+            }
+
+            // 2. Fetch des nouvelles données
+            try {
+                const sessionRaw = localStorage.getItem('scolengo_session');
+                if (!sessionRaw) throw new Error("No session");
+
+                const res = await fetch('/api/index?action=devoirs', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session: session })
+                    body: JSON.stringify({ session: JSON.parse(sessionRaw) })
                 });
 
-                const data = await hRes.json();
+                const data = await res.json();
                 
-                // Adaptation pour scolengo-api v3 (tableau direct ou .items)
-                allHomeworks = Array.isArray(data) ? data : (data.items || []);
+                if (data.success === false) throw new Error(data.error);
 
-                const list = document.getElementById('fullHwList');
-                list.innerHTML = "";
+                localStorage.setItem('cached_homeworks', JSON.stringify(data));
+                renderDevoirs(data);
 
-                if (allHomeworks.length > 0) {
-                    allHomeworks.forEach((d, index) => {
-                        const rawDate = d.dueDateTime || d.dueDate;
-                        let dateDisplay = "À venir";
-
-                        if (rawDate) {
-                            const dateObj = new Date(rawDate);
-                            if (!isNaN(dateObj.getTime())) {
-                                dateDisplay = dateObj.toLocaleDateString('fr-FR', {day: 'numeric', month: 'short'});
-                            }
-                        }
-
-                        const subjectName = (d.subject && typeof d.subject === 'object') 
-                            ? (d.subject.label || "MATIÈRE") 
-                            : (d.subject || "MATIÈRE");
-
-                        list.innerHTML += `
-                            <div class="hw-card" onclick="showDetail(${index})">
-                                <div class="subject-tag">${subjectName.toUpperCase()}</div>
-                                <div style="font-weight: 700; font-size: 17px; margin-bottom: 5px;">
-                                    ${d.title || "Exercices"}
-                                </div>
-                                <div style="color: var(--apple-gray); font-size: 13px;">
-                                    Pour le ${dateDisplay}
-                                </div>
-                            </div>
-                        `;
-                    });
-                } else {
-                    list.innerHTML = "<p style='padding:20px; color:gray;'>Aucun devoir trouvé.</p>";
+            } catch (e) {
+                console.error("Erreur chargement devoirs:", e);
+                if (!cached) {
+                    document.getElementById('fullHwList').innerHTML = `
+                        <div style="grid-column:1/-1; text-align:center; padding:40px;">
+                            <p style='color:red;'>Erreur de connexion aux serveurs Skolengo.</p>
+                            <button onclick="location.reload()" class="btn-login" style="width:auto; padding:10px 20px; margin-top:15px;">Réessayer</button>
+                        </div>`;
                 }
-            } catch (e) { 
-                console.error(e);
-                document.getElementById('fullHwList').innerHTML = "<p style='color:red; padding:20px;'>Erreur lors du chargement des devoirs.</p>";
             }
         }
 
@@ -147,30 +198,29 @@
             const hw = allHomeworks[index];
             const modal = document.getElementById('hwModal');
             const body = document.getElementById('modalBody');
+            
+            const subjectName = typeof hw.subject === 'object' ? (hw.subject.label || hw.subject.name) : hw.subject;
+            const dateLong = new Date(hw.dueDateTime || hw.dueDate).toLocaleDateString('fr-FR', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            });
 
-            const subjectName = (hw.subject && typeof hw.subject === 'object') ? hw.subject.label : hw.subject;
+            // On nettoie le HTML de Skolengo s'il contient des balises bizarres
+            let content = hw.description || hw.content || hw.html || "<i>Aucune consigne supplémentaire n'a été saisie par l'enseignant.</i>";
 
             body.innerHTML = `
-                <div class="subject-tag">${subjectName.toUpperCase()}</div>
-                <h2 style="margin: 10px 0;">${hw.title || "Exercices"}</h2>
-                <p style="color: var(--apple-gray);">Date limite : ${new Date(hw.dueDateTime || hw.dueDate).toLocaleDateString('fr-FR', {weekday: 'long', day: 'numeric', month: 'long'})}</p>
-                <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+                <div class="subject-tag" style="display:inline-block">${subjectName.toUpperCase()}</div>
+                <h2 style="margin: 15px 0 5px 0; font-size:24px; color:#1d1d1f;">${hw.title || "Détails du travail"}</h2>
+                <p style="color: var(--apple-blue); font-weight:500;">Echéance : ${dateLong}</p>
+                <div style="height:1px; background:#eee; margin:20px 0;"></div>
                 <div class="detail-html">
-                    ${hw.html || hw.content || "<i>Pas de description détaillée.</i>"}
+                    ${content}
                 </div>
             `;
-            
             modal.style.display = "block";
         }
 
-        function closeModal() {
-            document.getElementById('hwModal').style.display = "none";
-        }
-
-        window.onclick = function(event) {
-            const modal = document.getElementById('hwModal');
-            if (event.target == modal) closeModal();
-        }
+        function closeModal() { document.getElementById('hwModal').style.display = "none"; }
+        window.onclick = function(e) { if (e.target.id == 'hwModal') closeModal(); }
 
         init();
     </script>

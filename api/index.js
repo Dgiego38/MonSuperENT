@@ -1,56 +1,93 @@
-const ScolengoLib = require('scolengo-api');
+const { Skolengo } = require('scolengo-api');
 
 module.exports = async (req, res) => {
-    // Headers anti-CORS
+    // Headers CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
 
-    const { action } = req.query;
-    
-    // --- INITIALISATION ULTRA-ROBUSTE ---
-    let client;
-    try {
-        if (typeof ScolengoLib.Scolengo === 'function') {
-            client = new ScolengoLib.Scolengo(); // Cas v3 standard
-        } else if (typeof ScolengoLib === 'function') {
-            client = new ScolengoLib(); // Cas export direct
-        } else if (ScolengoLib.default && typeof ScolengoLib.default === 'function') {
-            client = new ScolengoLib.default(); // Cas export ESM/TypeScript
-        } else {
-            // Si on arrive ici, on log ce qu'il y a dans la lib pour debug
-            console.log("Contenu de la lib :", Object.keys(ScolengoLib));
-            throw new Error("Impossible de trouver le constructeur Scolengo");
-        }
-    } catch (e) {
-        return res.status(500).json({ error: "Erreur d'initialisation : " + e.message });
-    }
-    // -------------------------------------
+    // Extraction des paramètres peu importe la méthode (GET ou POST)
+    const action = req.query.action || (req.body && req.body.action);
+    const q = req.query.q;
+    const code = req.query.code;
+    const schoolUrl = req.query.url;
 
     try {
-        if (req.body && req.body.session) {
-            client.session = req.body.session;
+        // Parsing du body si présent
+        let body = {};
+        if (req.body) {
+            body = (typeof req.body === 'string') ? JSON.parse(req.body) : req.body;
         }
 
         switch (action) {
-            case 'login':
-                const { username, password, url } = req.body;
-                await client.login(username, password, url || 'https://cas.monbureaunumerique.fr');
-                return res.json({ success: true, session: client.session, user: client.user });
+            case 'search-school':
+                // On s'assure d'avoir une requête
+                const searchTerm = q || req.query.text; 
+                if (!searchTerm) return res.json([]);
+
+                // Appel à la méthode statique de recherche
+                const schools = await Skolengo.searchSchool({ text: searchTerm }, 15);
+                return res.json(schools);
+
+            case 'get-auth-url':
+                if (!schoolUrl) throw new Error("URL de l'établissement manquante");
+                
+                const schoolObj = { baseUrl: schoolUrl };
+                const oidClient = await Skolengo.getOIDClient(schoolObj);
+                
+                // On utilise l'hôte actuel pour la redirection
+                const protocol = req.headers['x-forwarded-proto'] || 'https';
+                const redirectUri = `${protocol}://${req.headers.host}/login.html`;
+                
+                const authURL = oidClient.authorizationUrl({
+                    redirect_uri: redirectUri,
+                    scope: 'openid profile email education',
+                });
+                
+                return res.json({ authURL });
+
+            case 'callback':
+                if (!code || !schoolUrl) throw new Error("Code ou URL manquants");
+                
+                const targetSchool = { baseUrl: schoolUrl };
+                const oid = await Skolengo.getOIDClient(targetSchool);
+                
+                const cbProtocol = req.headers['x-forwarded-proto'] || 'https';
+                const callbackUri = `${cbProtocol}://${req.headers.host}/login.html`;
+
+                const tokenSet = await oid.callback(callbackUri, { code });
+                
+                const client = await Skolengo.fromConfigObject({ 
+                    tokenSet, 
+                    school: targetSchool 
+                });
+
+                return res.json({ 
+                    success: true, 
+                    session: client.toConfigObject(), 
+                    user: await client.getUserInfo() 
+                });
 
             case 'devoirs':
-                if (!client.session) throw new Error("Session manquante");
-                // On tente getHomeworks (v3) ou getHomework (v2)
-                const method = client.getHomeworks ? 'getHomeworks' : 'getHomework';
-                const devoirs = await client[method](); 
-                return res.json(devoirs);
+                const sessionData = body.session || (req.query.session ? JSON.parse(req.query.session) : null);
+                if (!sessionData) return res.status(401).json({ error: "Non connecté" });
+                
+                const sessionClient = await Skolengo.fromConfigObject(sessionData);
+                const studentId = sessionClient.getTokenClaims().sub;
+                
+                const start = new Date().toISOString().split('T')[0];
+                const end = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                
+                const homework = await sessionClient.getHomeworkAssignments(studentId, start, end);
+                return res.json(homework);
 
             default:
-                return res.json({ status: "Prêt", lib_keys: Object.keys(ScolengoLib) });
+                return res.json({ status: "API Connectée", actionReceived: action });
         }
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("ERREUR API:", error.message);
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
