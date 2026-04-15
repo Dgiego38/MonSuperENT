@@ -85,7 +85,6 @@
     const statusText = document.getElementById('statusText');
     let searchTimeout;
 
-    // Gestion du retour d'authentification (Callback)
     async function checkCallback() {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
@@ -115,7 +114,6 @@
         }
     }
 
-    // Recherche d'établissement (Même logique que Papillon)
     schoolInput.addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
         const val = e.target.value;
@@ -133,7 +131,6 @@
                         const div = document.createElement('div');
                         div.className = 'result-item';
                         
-                        // Nettoyage de la ville
                         const city = (school.location?.city || school.city || "").replace('CEDEX', '').trim();
                         const zip = school.location?.zipCode || "";
 
@@ -152,21 +149,23 @@
         }, 350);
     });
 
-    // Lancement de l'authentification (Inspiré de skolengojs)
     async function startAuth(school) {
-        // 1. On récupère l'URL technique fournie par l'API (indispensable pour Mende/Occitanie)
-        let baseUrl = school.url || school.baseUrl || (school.fallback ? school.fallback.url : "");
+        // Extraction de l'URL avec plusieurs fallbacks pour supporter Mende/Occitanie
+        let baseUrl = school.url || 
+                      school.baseUrl || 
+                      (school.location && school.location.homepage) || 
+                      (school.fallback && school.fallback.url);
         
         if (!baseUrl) {
             alert("Impossible de localiser l'adresse de connexion de cet établissement.");
             return;
         }
 
-        // 2. Mapping vers les Portails Régionaux (Stabilité OIDC)
+        // Mapping vers les Portails Régionaux
         let finalAuthUrl = baseUrl;
         const portals = {
             "monbureaunumerique.fr": "https://www.monbureaunumerique.fr",
-            "ent-occitanie.fr": "https://www.ent-occitanie.fr", // Pour Mende et l'Occitanie
+            "ent-occitanie.fr": "https://www.ent-occitanie.fr",
             "ent77.seine-et-marne.fr": "https://ent77.seine-et-marne.fr",
             "ecollege.est-ensemble.fr": "https://ecollege.est-ensemble.fr",
             "savoirsnumeriques62.fr": "https://www.savoirsnumeriques62.fr",
@@ -180,17 +179,14 @@
             }
         }
 
-        console.log("Tentative de connexion sur :", finalAuthUrl);
-
         finalAuthUrl = finalAuthUrl.trim().replace(/\/$/, "");
         localStorage.setItem('temp_school_url', finalAuthUrl);
         
         document.getElementById('step1').classList.remove('active');
         document.getElementById('step2').classList.add('active');
-        statusText.innerText = "Ouverture de la session sécurisée...";
+        statusText.innerText = "Liaison avec le portail...";
 
         try {
-            // Appel à ton API Vercel pour générer l'URL EduConnect
             const res = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(finalAuthUrl)}`);
             const data = await res.json();
             
