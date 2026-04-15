@@ -1,4 +1,4 @@
-const { Scolengo } = require('scolengo-api');
+const ScolengoLib = require('scolengo-api');
 
 module.exports = async (req, res) => {
     // Headers anti-CORS
@@ -9,40 +9,48 @@ module.exports = async (req, res) => {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const { action } = req.query;
-    const client = new Scolengo();
+    
+    // --- INITIALISATION ULTRA-ROBUSTE ---
+    let client;
+    try {
+        if (typeof ScolengoLib.Scolengo === 'function') {
+            client = new ScolengoLib.Scolengo(); // Cas v3 standard
+        } else if (typeof ScolengoLib === 'function') {
+            client = new ScolengoLib(); // Cas export direct
+        } else if (ScolengoLib.default && typeof ScolengoLib.default === 'function') {
+            client = new ScolengoLib.default(); // Cas export ESM/TypeScript
+        } else {
+            // Si on arrive ici, on log ce qu'il y a dans la lib pour debug
+            console.log("Contenu de la lib :", Object.keys(ScolengoLib));
+            throw new Error("Impossible de trouver le constructeur Scolengo");
+        }
+    } catch (e) {
+        return res.status(500).json({ error: "Erreur d'initialisation : " + e.message });
+    }
+    // -------------------------------------
 
     try {
+        if (req.body && req.body.session) {
+            client.session = req.body.session;
+        }
+
         switch (action) {
             case 'login':
-                const { username, password, ent } = req.body;
-                // On tente la connexion (ent est l'URL de ton ENT, ex: 'clg-la-pierre-polie.monbureaunumerique.fr')
-                await client.login(username, password, ent);
-                
-                // On renvoie les données de session au front pour les stocker dans le localStorage
-                // Note : scolengo-api génère un fichier de session, mais sur Vercel on renvoie le résultat
-                return res.json({ 
-                    success: true, 
-                    session: client.session,
-                    user: client.user
-                });
+                const { username, password, url } = req.body;
+                await client.login(username, password, url || 'https://cas.monbureaunumerique.fr');
+                return res.json({ success: true, session: client.session, user: client.user });
 
-            case 'homework':
-                // Pour récupérer les devoirs, il nous faut la session envoyée par le front
-                const sessionData = req.body.session;
-                client.session = sessionData;
-                const devoirs = await client.getHomework();
+            case 'devoirs':
+                if (!client.session) throw new Error("Session manquante");
+                // On tente getHomeworks (v3) ou getHomework (v2)
+                const method = client.getHomeworks ? 'getHomeworks' : 'getHomework';
+                const devoirs = await client[method](); 
                 return res.json(devoirs);
 
-            case 'notes':
-                client.session = req.body.session;
-                const notes = await client.getGrades();
-                return res.json(notes);
-
             default:
-                return res.json({ status: "API Scolengo prête" });
+                return res.json({ status: "Prêt", lib_keys: Object.keys(ScolengoLib) });
         }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Erreur Scolengo: " + error.message });
+        res.status(500).json({ error: error.message });
     }
 };
