@@ -86,6 +86,7 @@
     const statusText = document.getElementById('statusText');
     let searchTimeout;
 
+    // 1. GESTION DU CALLBACK
     async function checkCallback() {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
@@ -106,77 +107,71 @@
                     localStorage.removeItem('temp_school_url');
                     window.location.href = "accueil.html";
                 } else {
-                    throw new Error(data.error || "Erreur lors du callback");
+                    throw new Error(data.error || "Erreur de session");
                 }
             } catch (e) {
-                alert("La connexion a échoué : " + e.message);
+                alert("Erreur : " + e.message);
                 window.location.href = "login.html";
             }
         }
     }
 
+    // 2. MOTEUR DE RECHERCHE
     schoolInput.addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
         const val = e.target.value;
-
-        if (val.length < 3) {
-            resultsDiv.style.display = 'none';
-            return;
-        }
+        if (val.length < 3) { resultsDiv.style.display = 'none'; return; }
 
         searchTimeout = setTimeout(async () => {
             try {
                 const res = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
                 const schools = await res.json();
-
                 resultsDiv.innerHTML = "";
                 if (schools && schools.length > 0) {
                     resultsDiv.style.display = 'block';
                     schools.forEach(school => {
                         const div = document.createElement('div');
                         div.className = 'result-item';
-                        
                         const city = (school.address?.city || school.city || "").replace('CEDEX', '').trim();
-                        const zip = school.address?.zipCode || school.zipCode || "";
-                        const ems = school.emsCode ? `(${school.emsCode})` : "";
-
                         div.innerHTML = `
                             <div class="school-info">
                                 <strong class="school-name">${school.name}</strong>
-                                <span class="school-details"><span class="school-ems">${ems}</span>${city} ${zip}</span>
+                                <span class="school-details">${city}</span>
                             </div>
                             <button class="btn-select-small">Choisir</button>
                         `;
-                        
                         div.onclick = () => startAuth(school);
                         resultsDiv.appendChild(div);
                     });
                 }
-            } catch (err) { console.error("Recherche HS:", err); }
+            } catch (err) { console.error(err); }
         }, 350);
     });
 
+    // 3. RÉSOLUTION DYNAMIQUE DE L'URL
     async function startAuth(school) {
-        // 1. On cherche l'URL partout
-        let baseUrl = school.baseUrl || school.url || (school.fallback ? school.fallback.url : null);
-        
-        // 2. RECONSTRUCTION SI VIDE (Spécial Grand-Est / MonBureauNumérique)
-        if (!baseUrl && school.name) {
-            console.log("Tentative de reconstruction de l'URL pour :", school.name);
-            const slug = school.name.toLowerCase()
-                .trim()
-                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlève les accents
-                .replace(/[^a-z0-9]/g, '-'); // Remplace tout ce qui n'est pas lettre/chiffre par un tiret
+        // A. On tente d'abord de récupérer l'URL fournie par Skolengo
+        let baseUrl = school.baseUrl || school.url || (school.fallback ? school.fallback.url : "");
+
+        // B. Si l'URL est vide ou incomplète (problème courant Grand-Est), on la reconstruit
+        if (!baseUrl || baseUrl.includes("skolengo.com")) {
+            console.log("Reconstruction dynamique pour :", school.name);
             
+            // On nettoie le nom pour le format URL
+            let slug = school.name.toLowerCase()
+                .trim()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlève accents
+                .replace(/college/g, "clg")  // Format standard ENT
+                .replace(/lycee/g, "lyc")    // Format standard ENT
+                .replace(/[^a-z0-9]/g, "-")  // Remplace tout le reste par des tirets
+                .replace(/-+/g, "-")         // Pas de doubles tirets
+                .replace(/^-|-$/g, "");      // Pas de tiret au début ou à la fin
+
+            // On ajoute le domaine MonBureauNumerique (majoritaire dans le Grand Est)
             baseUrl = `https://${slug}.monbureaunumerique.fr`;
         }
 
-        if (!baseUrl) {
-            alert("Erreur : Impossible de localiser l'adresse de cet établissement.");
-            return;
-        }
-
-        // Nettoyage final pour éviter les erreurs d'URL
+        // Nettoyage final (supprime le / à la fin)
         baseUrl = baseUrl.trim().replace(/\/$/, "");
         localStorage.setItem('temp_school_url', baseUrl);
         
@@ -191,7 +186,7 @@
             if(data.authURL) {
                 window.location.href = data.authURL;
             } else {
-                throw new Error(data.error || "OIDC Invalid");
+                throw new Error("L'adresse générée (" + baseUrl + ") ne répond pas.");
             }
         } catch (e) {
             alert("Erreur de liaison : " + e.message);
