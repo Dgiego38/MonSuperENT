@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Évaluations — ENT+</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script src="app.js"></script>
+<script src="sidebar.js"></script>
+
+<main class="main">
+    <div class="page-header">
+        <div>
+            <div class="page-title">📊 Évaluations</div>
+            <div class="page-subtitle">Vos notes et compétences</div>
+        </div>
+        <div class="card" style="padding:12px 20px; text-align:center">
+            <div class="stat-number" id="globalAvg" style="font-size:28px">—</div>
+            <div class="stat-label">Moyenne générale</div>
+        </div>
+    </div>
+
+    <div id="evalsContainer">
+        <div class="loading-dots" style="justify-content:flex-start; padding:40px 0">
+            <span></span><span></span><span></span>
+        </div>
+    </div>
+</main>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <div id="modalContent"></div>
+    </div>
+</div>
+
+<script>
+    initPage('evaluations');
+    let allEvals = [];
+
+    async function load() {
+        try {
+            const cached = localStorage.getItem('cache_evals');
+            if (cached) { allEvals = JSON.parse(cached); render(); }
+
+            const data = await API.post('evaluations');
+            allEvals = data.items || [];
+            localStorage.setItem('cache_evals', JSON.stringify(allEvals));
+            render();
+        } catch(e) {
+            if (allEvals.length === 0) {
+                document.getElementById('evalsContainer').innerHTML = `
+                    <div class="empty-state">
+                        <span class="empty-icon">⚠️</span>
+                        <div class="empty-title">Erreur de connexion</div>
+                        <p style="color:var(--text-3)">${e.message}</p>
+                        <button class="btn btn-primary" style="margin-top:16px" onclick="load()">Réessayer</button>
+                    </div>`;
+            }
+        }
+    }
+
+    function gradeColor(val, max) {
+        const pct = val / max;
+        if (pct >= 0.7) return 'grade-good';
+        if (pct >= 0.5) return 'grade-ok';
+        return 'grade-bad';
+    }
+
+    function parseGrade(g) {
+        // Skolengo peut renvoyer différents formats
+        const val = parseFloat(g?.value ?? g?.mark ?? g?.grade ?? g);
+        const max = parseFloat(g?.max ?? g?.outOf ?? g?.denominator ?? 20);
+        return { val: isNaN(val) ? null : val, max: isNaN(max) ? 20 : max };
+    }
+
+    function calcAvg(items) {
+        const grades = items.map(e => {
+            const g = parseGrade(e.grade || e.mark || e.value);
+            return g.val !== null ? (g.val / g.max) * 20 : null;
+        }).filter(v => v !== null);
+        if (grades.length === 0) return null;
+        return (grades.reduce((a,b) => a+b, 0) / grades.length).toFixed(2);
+    }
+
+    function render() {
+        if (allEvals.length === 0) {
+            document.getElementById('evalsContainer').innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">📊</span>
+                    <div class="empty-title">Aucune évaluation</div>
+                    <p style="color:var(--text-3)">Vos notes apparaîtront ici.</p>
+                </div>`;
+            return;
+        }
+
+        // Grouper par matière
+        const groups = {};
+        allEvals.forEach((e, i) => {
+            const subObj = e.subject || e.discipline || {};
+            const sub = typeof subObj === 'object' ? (subObj.label || subObj.name || 'Autre') : (subObj || 'Autre');
+            if (!groups[sub]) groups[sub] = [];
+            groups[sub].push({ ...e, _idx: i });
+        });
+
+        // Calcul moyenne globale
+        const avg = calcAvg(allEvals);
+        if (avg) document.getElementById('globalAvg').textContent = avg + '/20';
+
+        let html = '';
+        for (const [sub, items] of Object.entries(groups)) {
+            const c = subjectColor(sub);
+            const subAvg = calcAvg(items);
+
+            html += `
+                <div style="margin-bottom:28px">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px">
+                        <span style="width:4px; height:24px; background:${c}; border-radius:2px; display:inline-block"></span>
+                        <h3 style="font-size:16px; font-weight:700; color:var(--text-1)">${sub}</h3>
+                        ${subAvg ? `<span class="tag" style="background:${c}22; color:${c}; margin-left:auto">Moy. ${subAvg}/20</span>` : ''}
+                    </div>
+            `;
+
+            items.forEach(e => {
+                const gradeData = parseGrade(e.grade || e.mark || e.value);
+                const hasGrade = gradeData.val !== null;
+                const cls = hasGrade ? gradeColor(gradeData.val, gradeData.max) : '';
+                const dateStr = e.date || e.dateTime || e.correctedAt;
+
+                html += `
+                    <div class="grade-card" onclick='showEvalDetail(${JSON.stringify(e).replace(/'/g,"&#39;")})' style="cursor:pointer">
+                        <div class="grade-value ${cls}" style="font-size:${hasGrade ? '28px' : '20px'}">
+                            ${hasGrade ? gradeData.val : '—'}
+                            <span style="font-size:14px; opacity:0.5">/${gradeData.max}</span>
+                        </div>
+                        <div class="grade-info">
+                            <div class="grade-title">${e.title || e.name || 'Évaluation'}</div>
+                            <div class="grade-sub">
+                                ${dateStr ? DateUtils.short(dateStr) : ''}
+                                ${e.teacher ? ` · ${typeof e.teacher === 'object' ? e.teacher.label : e.teacher}` : ''}
+                            </div>
+                        </div>
+                        ${e.classAverage || e.average ? `
+                        <div class="grade-avg">
+                            Classe<br>
+                            <strong>${e.classAverage || e.average}</strong>
+                        </div>` : ''}
+                    </div>
+                `;
+            });
+            html += '</div>';
+        }
+
+        document.getElementById('evalsContainer').innerHTML = html;
+    }
+
+    function showEvalDetail(e) {
+        const subObj = e.subject || e.discipline || {};
+        const sub = typeof subObj === 'object' ? (subObj.label || 'Matière') : (subObj || 'Matière');
+        const g = parseGrade(e.grade || e.mark || e.value);
+        const c = subjectColor(sub);
+        const cls = g.val !== null ? gradeColor(g.val, g.max) : '';
+        const comment = e.comment || e.appreciation || e.teachers?.[0]?.comment || '';
+
+        openModal(`
+            <span class="tag" style="background:${c}22; color:${c}; border:1px solid ${c}44; display:inline-block; margin-bottom:12px">
+                ${sub.toUpperCase()}
+            </span>
+            <div style="display:flex; align-items:flex-end; gap:16px; margin-bottom:16px">
+                <div class="grade-value ${cls}" style="font-size:52px; line-height:1">
+                    ${g.val !== null ? g.val : '—'}
+                </div>
+                <div>
+                    <div style="font-size:18px; color:var(--text-3)">/ ${g.max}</div>
+                    ${e.coefficient ? `<div style="font-size:12px; color:var(--text-3)">Coeff. ${e.coefficient}</div>` : ''}
+                </div>
+            </div>
+            <h2 style="font-size:20px; font-weight:700; margin-bottom:8px">${e.title || e.name || 'Évaluation'}</h2>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px">
+                ${e.date || e.dateTime ? `<span class="tag tag-gray">📅 ${DateUtils.long(e.date||e.dateTime)}</span>` : ''}
+                ${e.classAverage || e.average ? `<span class="tag tag-gray">Moy. classe : ${e.classAverage||e.average}</span>` : ''}
+                ${e.classMin ? `<span class="tag tag-gray">Min : ${e.classMin}</span>` : ''}
+                ${e.classMax ? `<span class="tag tag-gray">Max : ${e.classMax}</span>` : ''}
+            </div>
+            ${comment ? `
+            <div class="divider"></div>
+            <div style="margin-top:16px">
+                <div style="font-size:12px; font-weight:700; color:var(--text-3); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px">
+                    Appréciation
+                </div>
+                <div class="rich-content">${comment}</div>
+            </div>` : ''}
+        `);
+    }
+
+    load();
+</script>
+</body>
+</html>

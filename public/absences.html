@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absences — ENT+</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script src="app.js"></script>
+<script src="sidebar.js"></script>
+
+<main class="main">
+    <div class="page-header">
+        <div>
+            <div class="page-title">🚫 Absences</div>
+            <div class="page-subtitle">Historique de vos absences et retards</div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row" style="margin-bottom:32px">
+        <div class="stat-card">
+            <div class="stat-number" id="statTotal" style="color:var(--blue)">—</div>
+            <div class="stat-label">Total absences</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="statJustified" style="color:var(--green)">—</div>
+            <div class="stat-label">Justifiées</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="statUnjustified" style="color:var(--red)">—</div>
+            <div class="stat-label">Non justifiées</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="statLate" style="color:var(--orange)">—</div>
+            <div class="stat-label">Retards</div>
+        </div>
+    </div>
+
+    <div id="absContainer">
+        <div class="loading-dots" style="justify-content:flex-start; padding:40px 0">
+            <span></span><span></span><span></span>
+        </div>
+    </div>
+</main>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <div id="modalContent"></div>
+    </div>
+</div>
+
+<script>
+    initPage('absences');
+
+    async function load() {
+        try {
+            const data = await API.post('absences');
+            const items = data.items || [];
+            render(items);
+        } catch(e) {
+            document.getElementById('absContainer').innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">⚠️</span>
+                    <div class="empty-title">Erreur de connexion</div>
+                    <p style="color:var(--text-3)">${e.message}</p>
+                    <button class="btn btn-primary" style="margin-top:16px" onclick="load()">Réessayer</button>
+                </div>`;
+        }
+    }
+
+    function getType(item) {
+        const reason = (item.reason || item.type || item.absenceType || '').toLowerCase();
+        if (reason.includes('retard')) return 'late';
+        const justified = item.justified ?? item.isJustified ?? item.validatedByParents ?? false;
+        return justified ? 'justified' : 'unjustified';
+    }
+
+    function render(items) {
+        if (items.length === 0) {
+            document.getElementById('statTotal').textContent = '0';
+            document.getElementById('statJustified').textContent = '0';
+            document.getElementById('statUnjustified').textContent = '0';
+            document.getElementById('statLate').textContent = '0';
+            document.getElementById('absContainer').innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">✅</span>
+                    <div class="empty-title">Aucune absence enregistrée</div>
+                    <p style="color:var(--text-3)">Continuez comme ça !</p>
+                </div>`;
+            return;
+        }
+
+        const justified   = items.filter(i => getType(i) === 'justified');
+        const unjustified = items.filter(i => getType(i) === 'unjustified');
+        const late        = items.filter(i => getType(i) === 'late');
+
+        document.getElementById('statTotal').textContent = items.length;
+        document.getElementById('statJustified').textContent = justified.length;
+        document.getElementById('statUnjustified').textContent = unjustified.length;
+        document.getElementById('statLate').textContent = late.length;
+
+        const sorted = [...items].sort((a,b) =>
+            new Date(b.date || b.fromDate || b.startDate || 0) -
+            new Date(a.date || a.fromDate || a.startDate || 0)
+        );
+
+        const typeMap = {
+            justified:   { icon: '✅', cls: 'absence-justified',   label: 'Justifiée',     color: 'var(--green)' },
+            unjustified: { icon: '❌', cls: 'absence-unjustified', label: 'Non justifiée', color: 'var(--red)' },
+            late:        { icon: '⏰', cls: 'absence-late',        label: 'Retard',        color: 'var(--orange)' }
+        };
+
+        document.getElementById('absContainer').innerHTML = sorted.map(item => {
+            const type = getType(item);
+            const t = typeMap[type];
+            const dateStart = item.date || item.fromDate || item.startDate;
+            const dateEnd   = item.toDate || item.endDate;
+            const duration  = item.duration || item.hours;
+            const reason    = item.reason || item.comment || item.motif || '';
+
+            return `
+                <div class="absence-item ${t.cls}" onclick='showAbsDetail(${JSON.stringify(item).replace(/'/g,"&#39;")})' style="cursor:pointer">
+                    <div class="absence-icon">${t.icon}</div>
+                    <div class="absence-info">
+                        <div class="absence-title">
+                            ${DateUtils.long(dateStart)}
+                            ${dateEnd ? ` → ${DateUtils.short(dateEnd)}` : ''}
+                        </div>
+                        <div class="absence-sub">
+                            <span style="color:${t.color}; font-weight:600">${t.label}</span>
+                            ${duration ? ` · ${duration}` : ''}
+                            ${reason ? ` · ${reason}` : ''}
+                        </div>
+                    </div>
+                    <span style="color:var(--text-3); font-size:18px">›</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function showAbsDetail(item) {
+        const type = getType(item);
+        const typeMap = {
+            justified:   { icon: '✅', label: 'Justifiée',     cls: 'tag-green' },
+            unjustified: { icon: '❌', label: 'Non justifiée', cls: 'tag-red' },
+            late:        { icon: '⏰', label: 'Retard',        cls: 'tag-orange' }
+        };
+        const t = typeMap[type];
+        const dateStart = item.date || item.fromDate || item.startDate;
+        const dateEnd   = item.toDate || item.endDate;
+
+        openModal(`
+            <div style="font-size:40px; margin-bottom:12px">${t.icon}</div>
+            <span class="tag ${t.cls}" style="margin-bottom:16px; display:inline-block">${t.label}</span>
+            <h2 style="font-size:20px; font-weight:700; margin-bottom:16px">
+                ${DateUtils.long(dateStart)}
+                ${dateEnd ? `<br><span style="font-size:15px; color:var(--text-2)">jusqu'au ${DateUtils.long(dateEnd)}</span>` : ''}
+            </h2>
+            <div class="divider"></div>
+            <div style="margin-top:16px; display:flex; flex-direction:column; gap:12px">
+                ${item.duration || item.hours ? `<div><span style="color:var(--text-3); font-size:12px; text-transform:uppercase; letter-spacing:1px">Durée</span><br><strong>${item.duration || item.hours}</strong></div>` : ''}
+                ${item.reason || item.motif ? `<div><span style="color:var(--text-3); font-size:12px; text-transform:uppercase; letter-spacing:1px">Motif</span><br><strong>${item.reason || item.motif}</strong></div>` : ''}
+                ${item.comment ? `<div><span style="color:var(--text-3); font-size:12px; text-transform:uppercase; letter-spacing:1px">Commentaire</span><br><p style="color:var(--text-2)">${item.comment}</p></div>` : ''}
+            </div>
+        `);
+    }
+
+    load();
+</script>
+</body>
+</html>

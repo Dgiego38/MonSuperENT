@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mon profil — ENT+</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script src="app.js"></script>
+<script src="sidebar.js"></script>
+
+<main class="main">
+    <div class="page-header">
+        <div>
+            <div class="page-title">👤 Mon profil</div>
+            <div class="page-subtitle">Informations de votre compte Skolengo</div>
+        </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 300px 1fr; gap:24px; align-items:start">
+        <!-- Carte identité -->
+        <div class="card" style="text-align:center; padding:36px 24px">
+            <div id="profileAvatar" style="
+                width:80px; height:80px; border-radius:50%;
+                background: linear-gradient(135deg, var(--blue), var(--purple));
+                display:flex; align-items:center; justify-content:center;
+                font-size:32px; font-weight:700; color:white;
+                margin:0 auto 16px auto;
+            ">?</div>
+            <div id="profileName" style="font-size:20px; font-weight:700; margin-bottom:4px">Chargement...</div>
+            <div id="profileRole" style="font-size:13px; color:var(--text-3)">Élève</div>
+            <div class="divider"></div>
+            <div id="profileSchool" style="font-size:13px; color:var(--text-2)">—</div>
+            <div style="margin-top:20px">
+                <button class="btn btn-ghost" style="width:100%" onclick="Session.logout()">
+                    ↪ Se déconnecter
+                </button>
+            </div>
+        </div>
+
+        <!-- Infos détaillées -->
+        <div>
+            <div class="card" style="margin-bottom:16px">
+                <h3 style="font-size:15px; font-weight:700; margin-bottom:16px; color:var(--text-2)">
+                    INFORMATIONS PERSONNELLES
+                </h3>
+                <div id="profileDetails" style="display:flex; flex-direction:column; gap:14px">
+                    <div class="loading-dots"><span></span><span></span><span></span></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="font-size:15px; font-weight:700; margin-bottom:16px; color:var(--text-2)">
+                    SESSION ENT+
+                </h3>
+                <div style="display:flex; flex-direction:column; gap:12px">
+                    <div style="display:flex; justify-content:space-between; align-items:center">
+                        <span style="color:var(--text-2); font-size:14px">Statut</span>
+                        <span class="tag tag-green">✓ Connecté</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center">
+                        <span style="color:var(--text-2); font-size:14px">Version ENT+</span>
+                        <span class="tag tag-gray">v3.0</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center">
+                        <span style="color:var(--text-2); font-size:14px">Données en cache</span>
+                        <button class="btn btn-ghost" style="padding:4px 12px; font-size:12px" onclick="clearCache()">
+                            🗑 Vider
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    initPage('fiche-eleve');
+
+    function infoRow(label, value) {
+        if (!value) return '';
+        return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border)">
+                <span style="color:var(--text-3); font-size:13px">${label}</span>
+                <span style="color:var(--text-1); font-size:14px; font-weight:500">${value}</span>
+            </div>
+        `;
+    }
+
+    async function load() {
+        const cachedUser = Session.getUser();
+
+        // Affichage depuis le cache localStorage
+        if (cachedUser) {
+            displayUser(cachedUser);
+        }
+
+        // Refresh depuis l'API
+        try {
+            const data = await API.post('students');
+            if (data.user) {
+                localStorage.setItem('ent_user', JSON.stringify(data.user));
+                displayUser(data.user);
+            }
+        } catch(e) {
+            if (!cachedUser) {
+                document.getElementById('profileDetails').innerHTML =
+                    `<p style="color:var(--text-3)">${e.message}</p>`;
+            }
+        }
+    }
+
+    function displayUser(user) {
+        const name = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+        const initials = ((user.firstName||'?')[0] + (user.lastName||'?')[0]).toUpperCase();
+
+        document.getElementById('profileAvatar').textContent = initials;
+        document.getElementById('profileName').textContent   = name || '—';
+        document.getElementById('profileRole').textContent   = user.type || user.role || 'Élève';
+
+        const school = user.school || user.establishment;
+        if (school) {
+            document.getElementById('profileSchool').textContent =
+                typeof school === 'object' ? (school.name || school.label) : school;
+        }
+
+        document.getElementById('profileDetails').innerHTML = [
+            infoRow('Prénom',         user.firstName),
+            infoRow('Nom',            user.lastName),
+            infoRow('Email',          user.email || user.mail),
+            infoRow('Téléphone',      user.phone || user.mobile),
+            infoRow('Classe',         user.currentClasses?.[0]?.label || user.className || user.class),
+            infoRow('Établissement',  typeof school === 'object' ? school.name : school),
+            infoRow('Identifiant',    user.id || user.uid),
+        ].filter(Boolean).join('') || '<p style="color:var(--text-3)">Informations non disponibles.</p>';
+    }
+
+    function clearCache() {
+        const keys = ['cache_hw', 'cache_evals', 'cache_messages'];
+        keys.forEach(k => localStorage.removeItem(k));
+        const btn = event.target;
+        btn.textContent = '✓ Vidé';
+        setTimeout(() => { btn.textContent = '🗑 Vider'; }, 1500);
+    }
+
+    load();
+</script>
+</body>
+</html>

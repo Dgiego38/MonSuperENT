@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messagerie — ENT+</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script src="app.js"></script>
+<script src="sidebar.js"></script>
+
+<main class="main">
+    <div class="page-header">
+        <div>
+            <div class="page-title">✉️ Messagerie</div>
+            <div class="page-subtitle">Communications avec vos professeurs et l'administration</div>
+        </div>
+    </div>
+
+    <div id="msgContainer">
+        <div class="loading-dots" style="justify-content:flex-start; padding:40px 0">
+            <span></span><span></span><span></span>
+        </div>
+    </div>
+</main>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+    <div class="modal-box" style="max-width:700px">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <div id="modalContent"></div>
+    </div>
+</div>
+
+<script>
+    initPage('messagerie');
+
+    async function load() {
+        try {
+            const data = await API.post('messages');
+            const items = data.items || [];
+            render(items);
+        } catch(e) {
+            document.getElementById('msgContainer').innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">⚠️</span>
+                    <div class="empty-title">Erreur de connexion</div>
+                    <p style="color:var(--text-3)">${e.message}</p>
+                    <button class="btn btn-primary" style="margin-top:16px" onclick="load()">Réessayer</button>
+                </div>`;
+        }
+    }
+
+    function render(items) {
+        if (items.length === 0) {
+            document.getElementById('msgContainer').innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">📭</span>
+                    <div class="empty-title">Aucun message</div>
+                    <p style="color:var(--text-3)">Votre boîte est vide.</p>
+                </div>`;
+            return;
+        }
+
+        const sorted = [...items].sort((a,b) =>
+            new Date(b.date||b.sentAt||b.createdAt||0) - new Date(a.date||a.sentAt||a.createdAt||0)
+        );
+
+        document.getElementById('msgContainer').innerHTML = `
+            <div class="msg-list">
+                ${sorted.map(m => msgRow(m)).join('')}
+            </div>
+        `;
+    }
+
+    function msgRow(m) {
+        // Skolengo: participants, from, sender...
+        const sender = m.sender?.label || m.from?.label || m.from || m.participants?.[0]?.label || 'Expéditeur';
+        const init   = sender.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+        const unread = m.read === false || m.hasParticipantsWhoHaveNotRead === true;
+        const dateStr = m.date || m.sentAt || m.createdAt;
+
+        return `
+            <div class="msg-item ${unread ? 'unread' : ''}" onclick='showMsg(${JSON.stringify(m).replace(/'/g,"&#39;")})'>
+                <div class="msg-avatar">${init}</div>
+                <div class="msg-content">
+                    <div class="msg-sender">${sender}</div>
+                    <div class="msg-subject">${m.subject || m.title || 'Sans objet'}</div>
+                    <div class="msg-preview">${stripHtml(m.preview || m.body || m.content || '')}</div>
+                </div>
+                <div class="msg-meta">
+                    <span class="msg-date">${DateUtils.short(dateStr)}</span>
+                    ${unread ? '<div class="unread-dot"></div>' : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function stripHtml(html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        return tmp.textContent?.slice(0, 120) || '';
+    }
+
+    function showMsg(m) {
+        const sender  = m.sender?.label || m.from?.label || m.from || 'Expéditeur';
+        const init    = sender.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+        const dateStr = m.date || m.sentAt || m.createdAt;
+        const body    = m.body || m.content || m.html || m.message ||
+                        '<em style="color:var(--text-3)">Contenu indisponible.</em>';
+
+        // Participants
+        const parts = m.participants || m.recipients || [];
+        const partsHtml = parts.length > 0 ? `
+            <div style="margin-bottom:16px">
+                <span style="font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:1px">Participants</span><br>
+                <span style="font-size:13px; color:var(--text-2)">${parts.map(p => p.label||p.name||p).join(', ')}</span>
+            </div>` : '';
+
+        openModal(`
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px">
+                <div class="msg-avatar" style="width:48px; height:48px; font-size:18px">${init}</div>
+                <div>
+                    <div style="font-weight:700; font-size:16px">${sender}</div>
+                    <div style="font-size:12px; color:var(--text-3)">${DateUtils.long(dateStr)}</div>
+                </div>
+            </div>
+            <h2 style="font-size:20px; font-weight:700; margin-bottom:16px">${m.subject || m.title || 'Sans objet'}</h2>
+            ${partsHtml}
+            <div class="divider"></div>
+            <div class="rich-content" style="margin-top:20px">${body}</div>
+        `);
+    }
+
+    load();
+</script>
+</body>
+</html>

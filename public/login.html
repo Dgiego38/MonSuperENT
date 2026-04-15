@@ -2,210 +2,214 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connexion — ENT+</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        .search-results {
-            background: white;
-            border-radius: 12px;
-            margin-top: 10px;
-            max-height: 300px;
-            overflow-y: auto;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-            display: none;
-            position: absolute;
-            width: 100%;
-            left: 0;
-            z-index: 100;
-            border: 1px solid #eee;
-        }
-        .result-item {
-            padding: 12px 16px;
-            border-bottom: 1px solid #f5f5f7;
-            cursor: pointer;
-            text-align: left;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background 0.2s;
-        }
-        .result-item:hover { background: #f9f9fb; }
-        .school-info { flex-grow: 1; }
-        .school-name { display: block; color: #1d1d1f; font-size: 14px; font-weight: 600; }
-        .school-details { font-size: 12px; color: #86868b; }
-        
-        .btn-select-small {
-            background: #f5f5f7;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 15px;
-            font-size: 12px;
-            font-weight: 500;
-            color: #0071e3;
-            cursor: pointer;
-        }
-        .result-item:hover .btn-select-small { background: #0071e3; color: white; }
-
-        .step { display: none; }
-        .step.active { display: block; animation: fadeIn 0.4s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .input-container { position: relative; width: 100%; }
-    </style>
 </head>
 <body>
+<div class="login-bg"></div>
 
 <div class="login-wrapper">
     <div class="login-card">
-        <h1>🏫 ENT+</h1>
-        
-        <div id="step1" class="step active">
-            <p style="margin-bottom: 20px; color: #86868b;">Trouvez votre établissement</p>
-            <div class="input-container">
-                <input type="text" id="schoolInput" class="btn-login" 
-                       style="background:white; color:black; border:1px solid #ddd; text-align:left;" 
-                       placeholder="Nom, Ville ou Code Postal...">
-                <div id="results" class="search-results"></div>
+
+        <!-- Step 1 : Recherche école -->
+        <div id="step1">
+            <div class="login-logo">
+                <div class="login-logo-icon">🏫</div>
+                <div class="login-title">ENT+</div>
+                <div class="login-subtitle">Connectez-vous à votre établissement Skolengo</div>
+            </div>
+
+            <div class="search-input-wrap" style="position:relative">
+                <span class="search-icon">🔍</span>
+                <input
+                    type="text"
+                    id="schoolInput"
+                    class="search-field"
+                    placeholder="Nom, ville ou code postal..."
+                    autocomplete="off"
+                    autofocus
+                >
+                <div id="searchResults" class="search-results"></div>
+            </div>
+
+            <p style="color:var(--text-3); font-size:12px; text-align:center; margin-top:20px;">
+                Connexion sécurisée via EduConnect / Skolengo
+            </p>
+        </div>
+
+        <!-- Step 2 : Chargement -->
+        <div id="step2" style="display:none">
+            <div class="login-status">
+                <div class="spinner"></div>
+                <div class="login-status-title" id="statusTitle">Connexion en cours...</div>
+                <div class="login-status-sub" id="statusSub">Liaison avec votre ENT</div>
             </div>
         </div>
 
-        <div id="step2" class="step">
-            <div class="loading-wave" style="margin: 30px 0;">
-                <div class="dot"></div>
-                <div class="dot"></div>
-                <div class="dot"></div>
+        <!-- Step 3 : Erreur -->
+        <div id="step3" style="display:none">
+            <div class="login-status">
+                <span style="font-size:48px">⚠️</span>
+                <div class="login-status-title">Échec de connexion</div>
+                <div class="login-status-sub" id="errorMsg">Une erreur est survenue.</div>
+                <button class="btn btn-primary" style="margin-top:24px" onclick="resetLogin()">Réessayer</button>
             </div>
-            <p id="statusText" style="color: #1d1d1f; font-weight: 500;">Initialisation sécurisée...</p>
         </div>
     </div>
 </div>
 
 <script>
-    const schoolInput = document.getElementById('schoolInput');
-    const resultsDiv = document.getElementById('results');
-    const statusText = document.getElementById('statusText');
-    let searchTimeout;
-
-    async function checkCallback() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        const savedUrl = localStorage.getItem('temp_school_url');
-
-        if (code && savedUrl) {
-            document.getElementById('step1').classList.remove('active');
-            document.getElementById('step2').classList.add('active');
-            statusText.innerText = "Finalisation de la connexion...";
-
-            try {
-                const res = await fetch(`/api/index?action=callback&code=${code}&url=${encodeURIComponent(savedUrl)}`);
-                const data = await res.json();
-
-                if (data.success) {
-                    localStorage.setItem('scolengo_session', JSON.stringify(data.session));
-                    localStorage.setItem('ent_user', JSON.stringify(data.user));
-                    localStorage.removeItem('temp_school_url');
-                    window.location.href = "accueil.html";
-                } else {
-                    throw new Error(data.error || "Erreur de session");
-                }
-            } catch (e) {
-                alert("Erreur : " + e.message);
-                window.location.href = "login.html";
-            }
-        }
+    // Si déjà connecté → accueil
+    if (localStorage.getItem('ent_logged') === 'true') {
+        window.location.replace('accueil.html');
     }
 
-    schoolInput.addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        const val = e.target.value;
-        if (val.length < 3) { resultsDiv.style.display = 'none'; return; }
+    const schoolInput = document.getElementById('schoolInput');
+    const resultsDiv  = document.getElementById('searchResults');
+    let searchTimer;
 
-        searchTimeout = setTimeout(async () => {
+    function showStep(n) {
+        ['step1','step2','step3'].forEach((id, i) => {
+            document.getElementById(id).style.display = (i === n-1) ? 'block' : 'none';
+        });
+    }
+
+    function resetLogin() {
+        showStep(1);
+        schoolInput.value = '';
+        schoolInput.focus();
+    }
+
+    // ── Recherche école ──────────────────────────────────────
+    schoolInput.addEventListener('input', e => {
+        clearTimeout(searchTimer);
+        const val = e.target.value.trim();
+        if (val.length < 2) { resultsDiv.style.display = 'none'; return; }
+
+        searchTimer = setTimeout(async () => {
             try {
-                const res = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
-                const schools = await res.json();
-                resultsDiv.innerHTML = "";
-                
-                if (schools && schools.length > 0) {
-                    resultsDiv.style.display = 'block';
-                    schools.forEach(school => {
-                        const div = document.createElement('div');
-                        div.className = 'result-item';
-                        
-                        const city = (school.location?.city || school.city || "").replace('CEDEX', '').trim();
-                        const zip = school.location?.zipCode || "";
+                const r = await fetch(`/api/index?action=search-school&q=${encodeURIComponent(val)}`);
+                const schools = await r.json();
 
-                        div.innerHTML = `
-                            <div class="school-info">
-                                <strong class="school-name">${school.name}</strong>
-                                <span class="school-details">${city} ${zip ? '('+zip+')' : ''}</span>
-                            </div>
-                            <button class="btn-select-small">Choisir</button>
-                        `;
-                        div.onclick = () => startAuth(school);
-                        resultsDiv.appendChild(div);
-                    });
+                resultsDiv.innerHTML = '';
+                if (!schools || schools.length === 0) {
+                    resultsDiv.style.display = 'none'; return;
                 }
-            } catch (err) { console.error(err); }
-        }, 350);
+
+                resultsDiv.style.display = 'block';
+                schools.slice(0, 12).forEach(school => {
+                    const city = (school.location?.city || school.city || '').replace('CEDEX','').trim();
+                    const zip  = school.location?.zipCode || '';
+                    const div  = document.createElement('div');
+                    div.className = 'result-item';
+                    div.innerHTML = `
+                        <div class="result-icon">🏫</div>
+                        <div>
+                            <div class="result-name">${school.name}</div>
+                            <div class="result-detail">${city}${zip ? ' ('+zip+')' : ''}</div>
+                        </div>
+                        <span class="result-arrow">→</span>
+                    `;
+                    div.addEventListener('click', () => startAuth(school));
+                    resultsDiv.appendChild(div);
+                });
+            } catch(err) {
+                console.error('Search error:', err);
+            }
+        }, 300);
     });
 
+    document.addEventListener('click', e => {
+        if (!schoolInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+            resultsDiv.style.display = 'none';
+        }
+    });
+
+    // ── Démarrage auth ───────────────────────────────────────
     async function startAuth(school) {
-        // Extraction de l'URL avec plusieurs fallbacks pour supporter Mende/Occitanie
-        let baseUrl = school.url || 
-                      school.baseUrl || 
-                      (school.location && school.location.homepage) || 
-                      (school.fallback && school.fallback.url);
-        
+        resultsDiv.style.display = 'none';
+        showStep(2);
+        document.getElementById('statusTitle').textContent = `Liaison avec ${school.name}`;
+        document.getElementById('statusSub').textContent = 'Initialisation du protocole OIDC...';
+
+        // Extraction URL
+        let baseUrl = school.url || school.baseUrl ||
+                      school.location?.homepage ||
+                      school.links?.[0]?.href || '';
+
         if (!baseUrl) {
-            alert("Impossible de localiser l'adresse de connexion de cet établissement.");
+            showStep(3);
+            document.getElementById('errorMsg').textContent = "Adresse ENT introuvable pour cet établissement.";
             return;
         }
 
-        // Mapping vers les Portails Régionaux
-        let finalAuthUrl = baseUrl;
-        const portals = {
-            "monbureaunumerique.fr": "https://www.monbureaunumerique.fr",
-            "ent-occitanie.fr": "https://www.ent-occitanie.fr",
-            "ent77.seine-et-marne.fr": "https://ent77.seine-et-marne.fr",
-            "ecollege.est-ensemble.fr": "https://ecollege.est-ensemble.fr",
-            "savoirsnumeriques62.fr": "https://www.savoirsnumeriques62.fr",
-            "ent.l-ecole.com": "https://ent.l-ecole.com"
-        };
-
-        for (const [domain, portalUrl] of Object.entries(portals)) {
-            if (baseUrl.includes(domain)) {
-                finalAuthUrl = portalUrl;
-                break;
-            }
-        }
-
-        finalAuthUrl = finalAuthUrl.trim().replace(/\/$/, "");
-        localStorage.setItem('temp_school_url', finalAuthUrl);
-        
-        document.getElementById('step1').classList.remove('active');
-        document.getElementById('step2').classList.add('active');
-        statusText.innerText = "Liaison avec le portail...";
+        baseUrl = baseUrl.trim().replace(/\/$/, '');
+        localStorage.setItem('ent_school_url', baseUrl);
 
         try {
-            const res = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(finalAuthUrl)}`);
-            const data = await res.json();
-            
-            if(data.authURL) {
-                window.location.href = data.authURL;
-            } else {
-                throw new Error(data.error || data.message || "L'ENT distant ne répond pas.");
-            }
-        } catch (e) {
-            alert("Erreur de liaison : " + e.message);
-            location.reload();
+            const r = await fetch(`/api/index?action=get-auth-url&url=${encodeURIComponent(baseUrl)}`);
+            const data = await r.json();
+
+            if (!data.authURL) throw new Error(data.error || data.details || "URL d'auth non reçue");
+
+            // Stocker le verifier PKCE pour le callback
+            localStorage.setItem('ent_pkce_verifier', data.codeVerifier);
+
+            document.getElementById('statusSub').textContent = 'Redirection vers EduConnect...';
+            setTimeout(() => { window.location.href = data.authURL; }, 400);
+
+        } catch(err) {
+            showStep(3);
+            document.getElementById('errorMsg').textContent = err.message;
         }
     }
 
-    document.addEventListener('click', (e) => {
-        if (!schoolInput.contains(e.target)) resultsDiv.style.display = 'none';
-    });
+    // ── Traitement du callback OAuth ─────────────────────────
+    async function handleCallback() {
+        const params    = new URLSearchParams(window.location.search);
+        const code      = params.get('code');
+        const schoolUrl = localStorage.getItem('ent_school_url');
+        const verifier  = localStorage.getItem('ent_pkce_verifier');
 
-    checkCallback();
+        if (!code) return; // Pas de callback, afficher step1 normal
+
+        showStep(2);
+        document.getElementById('statusTitle').textContent = 'Finalisation...';
+        document.getElementById('statusSub').textContent = 'Vérification de la session...';
+
+        // Nettoyer l'URL
+        window.history.replaceState({}, '', '/login.html');
+
+        try {
+            if (!schoolUrl || !verifier) throw new Error("Données de session manquantes. Recommencez.");
+
+            const r = await fetch(
+                `/api/index?action=callback&code=${encodeURIComponent(code)}&url=${encodeURIComponent(schoolUrl)}&verifier=${encodeURIComponent(verifier)}`
+            );
+            const data = await r.json();
+
+            if (!data.success) throw new Error(data.error || "Erreur callback");
+
+            // Sauvegarde session
+            localStorage.setItem('ent_logged', 'true');
+            localStorage.setItem('ent_session', JSON.stringify(data.session));
+            localStorage.setItem('ent_user', JSON.stringify(data.user));
+            localStorage.removeItem('ent_pkce_verifier');
+            localStorage.removeItem('ent_school_url');
+
+            document.getElementById('statusTitle').textContent = `Bienvenue, ${data.user?.firstName || ''} !`;
+            document.getElementById('statusSub').textContent = 'Chargement de votre espace...';
+
+            setTimeout(() => { window.location.replace('accueil.html'); }, 600);
+
+        } catch(err) {
+            showStep(3);
+            document.getElementById('errorMsg').textContent = err.message;
+        }
+    }
+
+    handleCallback();
 </script>
 </body>
 </html>

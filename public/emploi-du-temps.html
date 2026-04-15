@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emploi du temps — ENT+</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .week-nav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .schedule-grid {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .schedule-header {
+            display: grid;
+            grid-template-columns: 56px repeat(5, 1fr);
+            background: var(--bg-3);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .schedule-header-cell {
+            padding: 12px 10px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-2);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            border-left: 1px solid var(--border);
+        }
+
+        .schedule-header-cell:first-child { border-left: none; }
+        .schedule-header-cell.today { color: var(--blue); background: var(--blue-dim); }
+
+        .schedule-body {
+            position: relative;
+        }
+
+        .time-row {
+            display: grid;
+            grid-template-columns: 56px repeat(5, 1fr);
+            border-bottom: 1px solid var(--border);
+            min-height: 52px;
+        }
+
+        .time-row:last-child { border-bottom: none; }
+
+        .time-label {
+            padding: 6px;
+            text-align: center;
+            font-size: 10px;
+            color: var(--text-3);
+            font-family: 'DM Mono', monospace;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 8px;
+            border-right: 1px solid var(--border);
+        }
+
+        .slot {
+            border-left: 1px solid var(--border);
+            padding: 3px;
+            position: relative;
+        }
+
+        .lesson {
+            background: var(--blue-dim);
+            border: 1px solid var(--blue-glow);
+            border-left: 3px solid var(--blue);
+            border-radius: 8px;
+            padding: 6px 8px;
+            height: 100%;
+            cursor: pointer;
+            transition: all 0.2s;
+            overflow: hidden;
+        }
+
+        .lesson:hover { filter: brightness(1.2); transform: scale(1.02); }
+
+        .lesson-name   { font-size: 11px; font-weight: 700; line-height: 1.3; }
+        .lesson-teacher{ font-size: 10px; color: var(--text-2); margin-top: 2px; }
+        .lesson-room   { font-size: 9px; font-family: 'DM Mono', monospace; color: var(--text-3); }
+    </style>
+</head>
+<body>
+<script src="app.js"></script>
+<script src="sidebar.js"></script>
+
+<main class="main">
+    <div class="page-header">
+        <div>
+            <div class="page-title">🗓️ Emploi du temps</div>
+            <div class="page-subtitle" id="weekLabel">Cette semaine</div>
+        </div>
+        <div class="week-nav">
+            <button class="btn btn-ghost" onclick="changeWeek(-1)">← Précédente</button>
+            <button class="btn btn-ghost" onclick="changeWeek(0)">Aujourd'hui</button>
+            <button class="btn btn-ghost" onclick="changeWeek(1)">Suivante →</button>
+        </div>
+    </div>
+
+    <div id="scheduleContainer">
+        <div class="loading-dots" style="justify-content:flex-start; padding:40px 0">
+            <span></span><span></span><span></span>
+        </div>
+    </div>
+</main>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <div id="modalContent"></div>
+    </div>
+</div>
+
+<script>
+    initPage('emploi-du-temps');
+
+    const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+    const HOURS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+
+    let weekOffset = 0;
+
+    function getMonday(offset = 0) {
+        const d = new Date();
+        d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1) + offset * 7);
+        d.setHours(0,0,0,0);
+        return d;
+    }
+
+    function toISO(d) { return d.toISOString().split('T')[0]; }
+
+    async function load() {
+        const monday = getMonday(weekOffset);
+        const friday = new Date(monday);
+        friday.setDate(friday.getDate() + 4);
+
+        document.getElementById('weekLabel').textContent =
+            `Du ${monday.toLocaleDateString('fr-FR', { day:'numeric', month:'long' })} au ${friday.toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' })}`;
+
+        document.getElementById('scheduleContainer').innerHTML = `
+            <div class="loading-dots" style="justify-content:flex-start; padding:40px 0">
+                <span></span><span></span><span></span>
+            </div>`;
+
+        try {
+            const data = await API.post('agenda', {
+                from: toISO(monday),
+                to:   toISO(friday)
+            });
+            render(data.items || [], monday);
+        } catch(e) {
+            document.getElementById('scheduleContainer').innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">⚠️</span>
+                    <div class="empty-title">Erreur de connexion</div>
+                    <p style="color:var(--text-3)">${e.message}</p>
+                    <button class="btn btn-primary" style="margin-top:16px" onclick="load()">Réessayer</button>
+                </div>`;
+        }
+    }
+
+    function changeWeek(dir) {
+        weekOffset = dir === 0 ? 0 : weekOffset + dir;
+        load();
+    }
+
+    function render(lessons, monday) {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+
+        // Construire la grille heure × jour
+        const grid = {};
+        HOURS.forEach(h => { grid[h] = {}; DAYS.forEach((_,i) => { grid[h][i] = null; }); });
+
+        lessons.forEach(lesson => {
+            const start = new Date(lesson.startDateTime || lesson.start);
+            const dayIdx = start.getDay() - 1; // 0=lundi
+            if (dayIdx < 0 || dayIdx > 4) return;
+
+            const hh = String(start.getHours()).padStart(2,'0') + ':00';
+            if (grid[hh] && grid[hh][dayIdx] === null) {
+                grid[hh][dayIdx] = lesson;
+            }
+        });
+
+        // Header avec dates
+        const headerHTML = `
+            <div class="schedule-header-cell" style="border-left:none"></div>
+            ${DAYS.map((day, i) => {
+                const d = new Date(monday);
+                d.setDate(d.getDate() + i);
+                const isToday = d.getTime() === today.getTime();
+                return `
+                    <div class="schedule-header-cell ${isToday ? 'today' : ''}">
+                        ${day}<br>
+                        <span style="font-size:15px; font-weight:700; color:${isToday ? 'var(--blue)' : 'var(--text-1)'}">${d.getDate()}</span>
+                    </div>
+                `;
+            }).join('')}
+        `;
+
+        // Rows
+        const rowsHTML = HOURS.map(hour => {
+            const slots = DAYS.map((_, i) => {
+                const lesson = grid[hour]?.[i];
+                if (!lesson) return `<div class="slot"></div>`;
+
+                const sub = lesson.subject || lesson.title || {};
+                const subName = typeof sub === 'object' ? (sub.label || sub.name || 'Cours') : (sub || 'Cours');
+                const teacher = lesson.teacher || lesson.teachers?.[0] || '';
+                const teacherName = typeof teacher === 'object' ? (teacher.label || teacher.name || '') : teacher;
+                const room = lesson.location || lesson.room || '';
+                const c = subjectColor(subName);
+
+                return `
+                    <div class="slot">
+                        <div class="lesson" style="background:${c}15; border-color:${c}30; border-left-color:${c}"
+                             onclick='showLessonDetail(${JSON.stringify(lesson).replace(/'/g,"&#39;")})'>
+                            <div class="lesson-name" style="color:${c}">${subName}</div>
+                            ${teacherName ? `<div class="lesson-teacher">${teacherName}</div>` : ''}
+                            ${room ? `<div class="lesson-room">📍 ${room}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="time-row">
+                    <div class="time-label">${hour}</div>
+                    ${slots}
+                </div>
+            `;
+        }).join('');
+
+        if (lessons.length === 0) {
+            document.getElementById('scheduleContainer').innerHTML = `
+                <div class="schedule-grid">
+                    <div class="schedule-header">${headerHTML}</div>
+                </div>
+                <div class="empty-state" style="margin-top:24px">
+                    <span class="empty-icon">🎉</span>
+                    <div class="empty-title">Aucun cours cette semaine</div>
+                </div>`;
+            return;
+        }
+
+        document.getElementById('scheduleContainer').innerHTML = `
+            <div class="schedule-grid">
+                <div class="schedule-header">${headerHTML}</div>
+                <div class="schedule-body">${rowsHTML}</div>
+            </div>
+        `;
+    }
+
+    function showLessonDetail(lesson) {
+        const sub = lesson.subject || lesson.title || {};
+        const subName = typeof sub === 'object' ? (sub.label || 'Cours') : (sub || 'Cours');
+        const teacher = lesson.teacher || lesson.teachers?.[0] || '';
+        const teacherName = typeof teacher === 'object' ? (teacher.label || '') : teacher;
+        const c = subjectColor(subName);
+        const start = new Date(lesson.startDateTime || lesson.start);
+        const end   = new Date(lesson.endDateTime   || lesson.end);
+
+        openModal(`
+            <span class="tag" style="background:${c}22; color:${c}; border:1px solid ${c}44; display:inline-block; margin-bottom:12px">
+                ${subName.toUpperCase()}
+            </span>
+            <h2 style="font-size:22px; font-weight:700; margin-bottom:20px">${subName}</h2>
+            <div style="display:flex; flex-direction:column; gap:12px">
+                <div style="display:flex; align-items:center; gap:10px">
+                    <span style="font-size:20px">🕐</span>
+                    <div>
+                        <div style="font-size:14px; font-weight:600">${!isNaN(start) ? start.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—'} – ${!isNaN(end) ? end.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—'}</div>
+                        <div style="font-size:12px; color:var(--text-3)">${DateUtils.long(lesson.startDateTime||lesson.start)}</div>
+                    </div>
+                </div>
+                ${teacherName ? `
+                <div style="display:flex; align-items:center; gap:10px">
+                    <span style="font-size:20px">👨‍🏫</span>
+                    <div style="font-size:14px; font-weight:600">${teacherName}</div>
+                </div>` : ''}
+                ${lesson.location || lesson.room ? `
+                <div style="display:flex; align-items:center; gap:10px">
+                    <span style="font-size:20px">📍</span>
+                    <div style="font-size:14px; font-weight:600">${lesson.location || lesson.room}</div>
+                </div>` : ''}
+                ${lesson.canceled || lesson.isCanceled ? `
+                <div class="tag tag-red" style="width:fit-content">⚠️ Cours annulé</div>` : ''}
+            </div>
+        `);
+    }
+
+    load();
+</script>
+</body>
+</html>

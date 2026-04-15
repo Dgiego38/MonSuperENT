@@ -2,227 +2,189 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Cahier de Texte — ENT+</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cahier de texte — ENT+</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Modale Apple Style */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.4);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            animation: fadeIn 0.3s ease;
-        }
-        .modal-content {
-            background-color: rgba(255, 255, 255, 0.95);
-            margin: 5% auto;
-            padding: 30px;
-            border-radius: 24px;
-            width: 90%;
-            max-width: 650px;
-            max-height: 80vh;
-            overflow-y: auto;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-            position: relative;
-        }
-        .close-btn {
-            position: absolute;
-            right: 20px;
-            top: 20px;
-            font-size: 28px;
-            cursor: pointer;
-            color: var(--apple-gray);
-            background: #eee;
-            width: 35px;
-            height: 35px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-        }
-        .detail-html { 
-            line-height: 1.7; 
-            color: #1d1d1f; 
-            margin-top: 20px; 
-            font-size: 16px;
-        }
-        .detail-html img { max-width: 100%; height: auto; border-radius: 12px; margin: 10px 0; }
-        .detail-html p { margin-bottom: 1em; }
-        
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    </style>
 </head>
 <body>
+<script src="app.js"></script>
+<script src="sidebar.js"></script>
 
-    <nav class="sidebar">
-        <div class="logo-container">ENT+</div>
-        <ul class="nav-links">
-            <li><a href="accueil.html">🏠 Tableau de Bord</a></li>
-            <li><a href="messagerie.html">✉️ Messagerie</a></li>
-            <li class="active"><a href="cahier-de-texte.html">📒 Cahier de Texte</a></li>
-            <li><a href="fiche-eleve.html">👥 Fiches Élèves</a></li>
-            <li><a href="absences.html">🚫 Absences</a></li>
-            <li><a href="evaluations.html">📊 Évaluations</a></li>
-            <li><a href="moodle.html">🎓 Moodle</a></li>
-        </ul>
-    </nav>
-
-    <main class="main-content">
-        <header class="header-top">
-            <div class="user-info"><span id="userName">Élève</span></div>
-        </header>
-
-        <h1 class="section-title">Travail à faire</h1>
-        <div id="fullHwList" class="hw-grid">
-            <div class="loader-container" style="grid-column: 1/-1; text-align: center; padding: 50px;">
-                <div class="loading-wave">
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                </div>
-                <p style="color:var(--apple-gray); margin-top:15px; font-weight:500;">Mise à jour du cahier de texte...</p>
-            </div>
+<main class="main">
+    <div class="page-header">
+        <div>
+            <div class="page-title">📒 Cahier de texte</div>
+            <div class="page-subtitle">Travail à faire et consignes de vos professeurs</div>
         </div>
-    </main>
-
-    <div id="hwModal" class="modal">
-        <div class="modal-content">
-            <span class="close-btn" onclick="closeModal()">&times;</span>
-            <div id="modalBody"></div>
+        <div style="display:flex; gap:10px; align-items:center">
+            <select id="filterSubject" class="search-field" style="width:auto; padding:10px 16px;">
+                <option value="">Toutes les matières</option>
+            </select>
         </div>
     </div>
 
-    <script>
-        let allHomeworks = [];
+    <div id="hwContainer">
+        <div class="loading-dots" style="justify-content:flex-start; padding:40px 0">
+            <span></span><span></span><span></span>
+        </div>
+    </div>
+</main>
 
-        // Sécurité session
-        if (localStorage.getItem('ent_plus_logged') !== 'true') {
-            window.location.replace("login.html");
-        }
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <div id="modalContent"></div>
+    </div>
+</div>
 
-        function renderDevoirs(data) {
-            // Skolengo peut renvoyer les items directement ou dans .items
-            allHomeworks = Array.isArray(data) ? data : (data.items || []);
-            const list = document.getElementById('fullHwList');
-            
-            if (allHomeworks.length === 0) {
-                list.innerHTML = `
-                    <div style="grid-column:1/-1; text-align:center; padding:40px;">
-                        <p style='color:var(--apple-gray); font-size:18px;'>🎉 Aucun devoir pour le moment !</p>
+<script>
+    initPage('cahier-de-texte');
+    let allHw = [];
+
+    async function load() {
+        try {
+            const cached = localStorage.getItem('cache_hw');
+            if (cached) { allHw = JSON.parse(cached); render(); }
+
+            const data = await API.post('devoirs');
+            allHw = data.items || [];
+            localStorage.setItem('cache_hw', JSON.stringify(allHw));
+            render();
+            fillSubjectFilter();
+        } catch(e) {
+            if (allHw.length === 0) {
+                document.getElementById('hwContainer').innerHTML = `
+                    <div class="empty-state">
+                        <span class="empty-icon">⚠️</span>
+                        <div class="empty-title">Erreur de connexion</div>
+                        <p style="color:var(--text-3)">${e.message}</p>
+                        <button class="btn btn-primary" style="margin-top:16px" onclick="load()">Réessayer</button>
                     </div>`;
-                return;
             }
+        }
+    }
 
-            // Tri par date la plus proche
-            allHomeworks.sort((a, b) => new Date(a.dueDateTime || a.dueDate) - new Date(b.dueDateTime || b.dueDate));
+    function fillSubjectFilter() {
+        const subjects = [...new Set(allHw.map(d => {
+            return typeof d.subject === 'object'
+                ? (d.subject?.label || '') : (d.subject || '');
+        }).filter(Boolean))].sort();
 
-            let html = "";
-            allHomeworks.forEach((d, index) => {
-                const rawDate = d.dueDateTime || d.dueDate;
-                let dateDisplay = "Date inconnue";
+        const sel = document.getElementById('filterSubject');
+        subjects.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            sel.appendChild(opt);
+        });
+    }
 
-                if (rawDate) {
-                    const dateObj = new Date(rawDate);
-                    dateDisplay = dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
-                }
+    document.getElementById('filterSubject').addEventListener('change', render);
 
-                // Récupération sécurisée de la matière
-                let subjectName = "Matière";
-                if (d.subject) {
-                    subjectName = typeof d.subject === 'object' ? (d.subject.label || d.subject.name) : d.subject;
-                }
+    function render() {
+        const filter = document.getElementById('filterSubject').value;
+        const filtered = filter
+            ? allHw.filter(d => {
+                const s = typeof d.subject === 'object' ? (d.subject?.label||'') : (d.subject||'');
+                return s === filter;
+              })
+            : allHw;
 
-                html += `
-                    <div class="hw-card" onclick="showDetail(${index})">
-                        <div class="subject-tag">${subjectName.toUpperCase()}</div>
-                        <div style="font-weight: 700; font-size: 17px; margin: 8px 0 4px 0; color:#1d1d1f;">
-                            ${d.title || "Consulter le contenu"}
-                        </div>
-                        <div style="color: var(--apple-blue); font-size: 13px; font-weight:600;">
-                            Pour le ${dateDisplay}
-                        </div>
+        if (filtered.length === 0) {
+            document.getElementById('hwContainer').innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">🎉</span>
+                    <div class="empty-title">Aucun devoir !</div>
+                    <p style="color:var(--text-3)">Profitez-en !</p>
+                </div>`;
+            return;
+        }
+
+        // Grouper par date
+        const sorted = [...filtered].sort((a,b) =>
+            new Date(a.dueDateTime||a.dueDate) - new Date(b.dueDateTime||b.dueDate)
+        );
+
+        const groups = {};
+        sorted.forEach((d, i) => {
+            const rawDate = d.dueDateTime || d.dueDate;
+            const key = rawDate ? new Date(rawDate).toLocaleDateString('fr-FR', {
+                weekday: 'long', day: 'numeric', month: 'long'
+            }) : 'Date inconnue';
+            if (!groups[key]) groups[key] = [];
+            groups[key].push({ ...d, _idx: i });
+        });
+
+        let html = '';
+        for (const [dateKey, items] of Object.entries(groups)) {
+            const isToday = dateKey === new Date().toLocaleDateString('fr-FR', {
+                weekday: 'long', day: 'numeric', month: 'long'
+            });
+            html += `
+                <div style="margin-bottom:32px">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px">
+                        <div style="height:1px; background:var(--border); flex:1"></div>
+                        <span class="tag ${isToday ? 'tag-blue' : 'tag-gray'}" style="font-size:12px">
+                            📅 ${dateKey}
+                        </span>
+                        <div style="height:1px; background:var(--border); flex:1"></div>
                     </div>
-                `;
-            });
-            list.innerHTML = html;
-        }
-
-        async function init() {
-            // Affichage du nom de l'utilisateur
-            const userRaw = localStorage.getItem('ent_user');
-            if (userRaw) {
-                const user = JSON.parse(userRaw);
-                document.getElementById('userName').innerText = `${user.firstName} ${user.lastName}`;
-            }
-
-            // 1. Affichage du cache pour la rapidité
-            const cached = localStorage.getItem('cached_homeworks');
-            if (cached) {
-                renderDevoirs(JSON.parse(cached));
-            }
-
-            // 2. Fetch des nouvelles données
-            try {
-                const sessionRaw = localStorage.getItem('scolengo_session');
-                if (!sessionRaw) throw new Error("No session");
-
-                const res = await fetch('/api/index?action=devoirs', {
-                    method: 'POST',
-                    body: JSON.stringify({ session: JSON.parse(sessionRaw) })
-                });
-
-                const data = await res.json();
-                
-                if (data.success === false) throw new Error(data.error);
-
-                localStorage.setItem('cached_homeworks', JSON.stringify(data));
-                renderDevoirs(data);
-
-            } catch (e) {
-                console.error("Erreur chargement devoirs:", e);
-                if (!cached) {
-                    document.getElementById('fullHwList').innerHTML = `
-                        <div style="grid-column:1/-1; text-align:center; padding:40px;">
-                            <p style='color:red;'>Erreur de connexion aux serveurs Skolengo.</p>
-                            <button onclick="location.reload()" class="btn-login" style="width:auto; padding:10px 20px; margin-top:15px;">Réessayer</button>
-                        </div>`;
-                }
-            }
-        }
-
-        function showDetail(index) {
-            const hw = allHomeworks[index];
-            const modal = document.getElementById('hwModal');
-            const body = document.getElementById('modalBody');
-            
-            const subjectName = typeof hw.subject === 'object' ? (hw.subject.label || hw.subject.name) : hw.subject;
-            const dateLong = new Date(hw.dueDateTime || hw.dueDate).toLocaleDateString('fr-FR', {
-                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-            });
-
-            // On nettoie le HTML de Skolengo s'il contient des balises bizarres
-            let content = hw.description || hw.content || hw.html || "<i>Aucune consigne supplémentaire n'a été saisie par l'enseignant.</i>";
-
-            body.innerHTML = `
-                <div class="subject-tag" style="display:inline-block">${subjectName.toUpperCase()}</div>
-                <h2 style="margin: 15px 0 5px 0; font-size:24px; color:#1d1d1f;">${hw.title || "Détails du travail"}</h2>
-                <p style="color: var(--apple-blue); font-weight:500;">Echéance : ${dateLong}</p>
-                <div style="height:1px; background:#eee; margin:20px 0;"></div>
-                <div class="detail-html">
-                    ${content}
+                    <div class="hw-grid">
+                        ${items.map(d => hwCard(d)).join('')}
+                    </div>
                 </div>
             `;
-            modal.style.display = "block";
         }
 
-        function closeModal() { document.getElementById('hwModal').style.display = "none"; }
-        window.onclick = function(e) { if (e.target.id == 'hwModal') closeModal(); }
+        document.getElementById('hwContainer').innerHTML = html;
+    }
 
-        init();
-    </script>
+    function hwCard(d) {
+        const subName = typeof d.subject === 'object'
+            ? (d.subject?.label || 'Matière') : (d.subject || 'Matière');
+        const c = subjectColor(subName);
+        const urgent  = DateUtils.isUrgent(d.dueDateTime||d.dueDate);
+        const overdue = DateUtils.isOverdue(d.dueDateTime||d.dueDate);
+        const hasContent = !!(d.description || d.content || d.html);
+
+        return `
+            <div class="hw-card" style="border-left-color:${c}" onclick='showDetail(${JSON.stringify(d).replace(/'/g,"&#39;")})'>
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:8px">
+                    <div class="hw-subject" style="color:${c}">${subName.toUpperCase()}</div>
+                    ${d.done ? '<span class="tag tag-green" style="font-size:10px">✓ Fait</span>' : ''}
+                </div>
+                <div class="hw-title">${d.title || 'Travail à faire'}</div>
+                ${d.teacher ? `<div style="font-size:12px; color:var(--text-3); margin-bottom:6px">👨‍🏫 ${typeof d.teacher === 'object' ? d.teacher.label : d.teacher}</div>` : ''}
+                <div class="hw-date ${urgent ? 'urgent' : overdue ? 'overdue' : ''}">
+                    ${overdue ? '⏰ Dépassé' : urgent ? '⚡ Urgent' : '📅'} ${DateUtils.weekday(d.dueDateTime||d.dueDate)}
+                    ${hasContent ? '<span style="margin-left:auto; font-size:10px; color:var(--text-3)">Consigne →</span>' : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function showDetail(d) {
+        const subName = typeof d.subject === 'object'
+            ? (d.subject?.label || 'Matière') : (d.subject || 'Matière');
+        const c = subjectColor(subName);
+        const content = d.description || d.content || d.html
+            || '<em style="color:var(--text-3)">Aucune consigne écrite par le professeur.</em>';
+
+        openModal(`
+            <span class="tag" style="background:${c}22; color:${c}; border:1px solid ${c}44; display:inline-block; margin-bottom:12px">
+                ${subName.toUpperCase()}
+            </span>
+            <h2 style="font-size:22px; font-weight:700; margin-bottom:6px">${d.title || 'Travail à faire'}</h2>
+            ${d.teacher ? `<p style="color:var(--text-2);font-size:13px;margin-bottom:4px">👨‍🏫 ${typeof d.teacher === 'object' ? d.teacher.label : d.teacher}</p>` : ''}
+            <p style="color:var(--blue); font-size:14px; font-weight:600; margin-bottom:20px">
+                📅 Pour le ${DateUtils.long(d.dueDateTime || d.dueDate)}
+            </p>
+            <div class="divider"></div>
+            <div class="rich-content" style="margin-top:20px">${content}</div>
+        `);
+    }
+
+    load();
+</script>
 </body>
 </html>

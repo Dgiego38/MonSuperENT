@@ -2,118 +2,206 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Tableau de Bord — ENT+</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau de bord — ENT+</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<script src="app.js"></script>
+<script src="sidebar.js"></script>
 
-    <nav class="sidebar">
-        <div class="logo-container">ENT+</div>
-        
-        <ul class="nav-links">
-            <li class="active"><a href="accueil.html">🏠 Tableau de Bord</a></li>
-            <li><a href="messagerie.html">✉️ Messagerie</a></li>
-            <li><a href="cahier-de-texte.html">📒 Cahier de Texte</a></li>
-            <li><a href="fiche-eleve.html">👥 Fiches Élèves</a></li>
-            <li><a href="absences.html">🚫 Absences</a></li>
-            <li><a href="evaluations.html">📊 Évaluations</a></li>
-            <li><a href="moodle.html">🎓 Moodle</a></li>
-        </ul>
-
-        <div class="sidebar-footer">
-            <div style="font-size: 12px; color: var(--apple-gray);">Établissement +</div>
-            <button class="btn-power" onclick="logout()" title="Déconnexion">⏻</button>
+<main class="main" id="main">
+    <div class="page-header">
+        <div>
+            <div class="page-title" id="welcomeTitle">Bonjour 👋</div>
+            <div class="page-subtitle" id="welcomeDate"></div>
         </div>
-    </nav>
+        <div id="syncStatus" class="tag tag-gray">Synchronisation...</div>
+    </div>
 
-    <main class="main-content">
-        <header class="header-top">
-            <div class="user-info">
-                <span id="userName">Chargement...</span>
-                <span id="status" class="status-indicator">● À JOUR</span>
+    <!-- Stats rapides -->
+    <div class="stats-row" id="statsRow">
+        <div class="stat-card">
+            <div class="stat-number" id="statHomeworks">—</div>
+            <div class="stat-label">Devoirs à faire</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="statMessages">—</div>
+            <div class="stat-label">Messages non lus</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="statAbsences">—</div>
+            <div class="stat-label">Absences</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="statAvg">—</div>
+            <div class="stat-label">Moyenne générale</div>
+        </div>
+    </div>
+
+    <!-- Prochains devoirs -->
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; align-items:start">
+        <div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                <h2 style="font-size:18px; font-weight:700">📒 Prochains devoirs</h2>
+                <a href="cahier-de-texte.html" class="btn btn-ghost" style="padding:6px 14px; font-size:13px">Tout voir →</a>
             </div>
-        </header>
+            <div id="hwPreview">
+                <div class="loading-dots"><span></span><span></span><span></span></div>
+            </div>
+        </div>
 
-        <h1 class="section-title">Vos Devoirs</h1>
-        <div class="hw-grid" id="hwList"></div>
-    </main>
+        <div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                <h2 style="font-size:18px; font-weight:700">✉️ Messagerie récente</h2>
+                <a href="messagerie.html" class="btn btn-ghost" style="padding:6px 14px; font-size:13px">Tout voir →</a>
+            </div>
+            <div id="msgPreview">
+                <div class="loading-dots"><span></span><span></span><span></span></div>
+            </div>
+        </div>
+    </div>
+</main>
 
-    <script>
-        // Vérification de sécurité
-        if (localStorage.getItem('ent_plus_logged') !== 'true') {
-            window.location.replace("login.html");
-        }
+<!-- Modal global -->
+<div class="modal-overlay" id="modal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <div id="modalContent"></div>
+    </div>
+</div>
 
-        async function init() {
-            // On récupère la session sauvée lors du login
-            const sessionRaw = localStorage.getItem('scolengo_session');
-            if (!sessionRaw) return logout();
-            
-            const session = JSON.parse(sessionRaw);
+<script>
+    initPage('accueil');
 
-            try {
-                // 1. Récupération des devoirs via l'API Vercel
-                // On utilise la route ?action=devoirs que nous avons créée dans api/index.js
-                const hRes = await fetch('/api/index?action=devoirs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session: session }) // On envoie la session au proxy
-                });
+    const user = Session.getUser();
+    if (user) {
+        document.getElementById('welcomeTitle').textContent = `Bonjour, ${user.firstName} 👋`;
+    }
 
-                const data = await hRes.json();
-                
-                // Mise à jour du nom (si présent dans la session ou les données)
-                if (data.user) {
-                    document.getElementById('userName').innerText = data.user.firstName + " " + data.user.lastName;
-                }
+    const now = new Date();
+    document.getElementById('welcomeDate').textContent = now.toLocaleDateString('fr-FR', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    });
 
-                const list = document.getElementById('hwList');
-                list.innerHTML = "";
+    // ── Chargement devoirs ──────────────────────────────────
+    async function loadHomeworks() {
+        try {
+            const cached = localStorage.getItem('cache_hw');
+            if (cached) renderHwPreview(JSON.parse(cached));
 
-                // Adaptation aux données de scolengo-api v3
-                const items = data.items || data || [];
+            const data = await API.post('devoirs');
+            const items = data.items || [];
+            localStorage.setItem('cache_hw', JSON.stringify(items));
 
-                if (Array.isArray(items) && items.length > 0) {
-                    items.forEach(d => {
-                        const rawDate = d.dueDateTime || d.dueDate;
-                        let dateDisplay = "À venir";
-
-                        if (rawDate) {
-                            const dateObj = new Date(rawDate);
-                            if (!isNaN(dateObj.getTime())) {
-                                dateDisplay = dateObj.toLocaleDateString('fr-FR', {
-                                    day: 'numeric', 
-                                    month: 'short'
-                                });
-                            }
-                        }
-
-                        const subjectName = (typeof d.subject === 'object') ? d.subject.label : d.subject;
-
-                        list.innerHTML += `
-                            <div class="hw-card">
-                                <div class="subject-tag">${subjectName || "Matière"}</div>
-                                <div style="font-weight: 700; font-size: 17px; margin-bottom: 5px;">${d.title || "Exercices"}</div>
-                                <div style="color: var(--apple-gray); font-size: 13px;">Pour le ${dateDisplay}</div>
-                            </div>
-                        `;
-                    });
-                } else {
-                    list.innerHTML = "<p style='color: gray; padding: 20px;'>Aucun devoir trouvé.</p>";
-                }
-            } catch (e) {
-                console.error(e);
-                document.getElementById('status').innerText = "❌ ERREUR";
-                document.getElementById('status').style.background = "var(--danger)";
+            document.getElementById('statHomeworks').textContent = items.length;
+            renderHwPreview(items);
+            document.getElementById('syncStatus').className = 'tag tag-green';
+            document.getElementById('syncStatus').textContent = '✓ À jour';
+        } catch(e) {
+            document.getElementById('syncStatus').className = 'tag tag-red';
+            document.getElementById('syncStatus').textContent = '⚠ Erreur';
+            if (!localStorage.getItem('cache_hw')) {
+                document.getElementById('hwPreview').innerHTML =
+                    '<p style="color:var(--text-3);font-size:13px">Impossible de charger les devoirs.</p>';
             }
         }
+    }
 
-        function logout() {
-            localStorage.clear(); // On vide tout
-            window.location.replace("login.html");
+    function renderHwPreview(items) {
+        const sorted = [...items].sort((a,b) =>
+            new Date(a.dueDateTime||a.dueDate) - new Date(b.dueDateTime||b.dueDate)
+        ).slice(0, 4);
+
+        if (sorted.length === 0) {
+            document.getElementById('hwPreview').innerHTML =
+                '<p style="color:var(--text-3);font-size:14px;padding:10px 0">🎉 Aucun devoir pour l\'instant !</p>';
+            return;
         }
 
-        init();
-    </script>
+        const color = s => subjectColor(typeof s === 'object' ? s?.label || '' : s || '');
+        const subName = d => typeof d.subject === 'object'
+            ? (d.subject?.label || d.subject?.name || 'Matière')
+            : (d.subject || 'Matière');
+
+        document.getElementById('hwPreview').innerHTML = sorted.map(d => {
+            const rawDate = d.dueDateTime || d.dueDate;
+            const urgent  = DateUtils.isUrgent(rawDate);
+            const overdue = DateUtils.isOverdue(rawDate);
+            const c = color(d.subject);
+            return `
+                <div class="hw-card" style="--subj:${c}; border-left-color:${c}; margin-bottom:12px" onclick="showHwDetail(${JSON.stringify(d).replace(/"/g,'&quot;')})">
+                    <div class="hw-subject" style="color:${c}">${subName(d).toUpperCase()}</div>
+                    <div class="hw-title">${d.title || 'Travail à faire'}</div>
+                    <div class="hw-date ${urgent ? 'urgent' : overdue ? 'overdue' : ''}">
+                        📅 Pour le ${DateUtils.weekday(rawDate)}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function showHwDetail(d) {
+        const subName = typeof d.subject === 'object'
+            ? (d.subject?.label || 'Matière') : (d.subject || 'Matière');
+        const content = d.description || d.content || d.html
+            || '<em style="color:var(--text-3)">Aucune consigne supplémentaire.</em>';
+        openModal(`
+            <span class="tag tag-blue" style="margin-bottom:12px; display:inline-block">${subName.toUpperCase()}</span>
+            <h2 style="font-size:22px; font-weight:700; margin-bottom:4px">${d.title || 'Travail à faire'}</h2>
+            <p style="color:var(--text-2); font-size:14px; margin-bottom:20px">
+                📅 Pour le ${DateUtils.long(d.dueDateTime || d.dueDate)}
+            </p>
+            <div class="divider"></div>
+            <div class="rich-content">${content}</div>
+        `);
+    }
+
+    // ── Chargement messages ─────────────────────────────────
+    async function loadMessages() {
+        try {
+            const data = await API.post('messages');
+            const items = (data.items || []).slice(0, 4);
+            document.getElementById('statMessages').textContent =
+                items.filter(m => !m.read).length;
+            renderMsgPreview(items);
+        } catch(e) {
+            document.getElementById('msgPreview').innerHTML =
+                '<p style="color:var(--text-3);font-size:13px">Impossible de charger les messages.</p>';
+        }
+    }
+
+    function renderMsgPreview(items) {
+        if (items.length === 0) {
+            document.getElementById('msgPreview').innerHTML =
+                '<p style="color:var(--text-3);font-size:14px;padding:10px 0">Aucun message récent.</p>';
+            return;
+        }
+        document.getElementById('msgPreview').innerHTML = `
+            <div class="msg-list">
+                ${items.map(m => {
+                    const sender = m.sender?.label || m.from || 'Expéditeur';
+                    const init = sender.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+                    return `
+                        <div class="msg-item ${m.read === false ? 'unread' : ''}">
+                            <div class="msg-avatar">${init}</div>
+                            <div class="msg-content">
+                                <div class="msg-sender">${sender}</div>
+                                <div class="msg-subject">${m.subject || m.title || 'Sans objet'}</div>
+                            </div>
+                            <div class="msg-meta">
+                                <span class="msg-date">${DateUtils.short(m.date || m.sentAt)}</span>
+                                ${m.read === false ? '<div class="unread-dot"></div>' : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    loadHomeworks();
+    loadMessages();
+</script>
 </body>
 </html>
